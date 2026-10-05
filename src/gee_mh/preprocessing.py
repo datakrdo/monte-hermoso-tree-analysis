@@ -28,7 +28,7 @@ RAW_BANDS = ["red", "nir", "swir"]
 
 # Bump when anything that changes the downloaded data changes (bands, scale,
 # collections, grid), to invalidate the disk cache
-CACHE_VERSION = 2
+CACHE_VERSION = 3
 DEFAULT_CACHE_DIR = PROJECT_ROOT / "data" / "cache"
 
 # Cloud Score+ (Sentinel-2): pixels with cs_cdf below this are masked
@@ -44,6 +44,10 @@ METERS_PER_DEGREE_LAT = 111_320.0
 
 # Composites drop scenes with more cloud cover than this (percent)
 DEFAULT_MAX_CLOUD_PERCENT = 35.0
+
+# A composite is rejected (the next source is tried) when fewer than this
+# fraction of its pixels have data, e.g. a window with only cloudy scenes
+MIN_VALID_FRACTION = 0.8
 
 # Gaussian smoothing applied to the raw bands (radius in pixels; 0 disables it)
 DEFAULT_BLUR = {"radius": 3, "sigma": 0.5}
@@ -254,9 +258,13 @@ class Preprocessor:
         collection = ee.ImageCollection(spec["collections"][0])
         for extra in spec["collections"][1:]:
             collection = collection.merge(ee.ImageCollection(extra))
-        return collection \
-            .filterBounds(area_bounding) \
-            .filter(ee.Filter.lt(spec["cloud"], self.max_cloud_coverage))
+        collection = collection.filterBounds(area_bounding)
+        # The scene cloud property covers the whole ~110 km tile, not the
+        # area: it drops scenes that are clear over it. Sentinel-2 is masked
+        # per pixel with Cloud Score+ instead.
+        if source == DataSource.SENTINEL2 and self.flag_cloud_filtering:
+            return collection
+        return collection.filter(ee.Filter.lt(spec["cloud"], self.max_cloud_coverage))
 
     def _dynamic_world(self, area_bounding: ee.Geometry, center: ee.Date, shift_day: int) -> ee.ImageCollection:
         # Dynamic World only covers imagery from 2015-06-27 onward, so for
@@ -265,18 +273,21 @@ class Preprocessor:
             .filterBounds(area_bounding) \
             .filterDate(center.advance(-shift_day, "day"), center.advance(shift_day, "day"))
 
-    def _find_source_window(self, date: str, area: LongLatBBox):
+    def _find_source_window(self, date: str, area: LongLatBBox, exclude=()):
         """
         Search the first source (in SEARCH_ORDER if the data source is AUTO)
         with at least one image in a window around the date, widening the
         window step by step. All the counts are fetched with one request.
         Return (source, shift_day, has_dynamic_world), or None if there is no
-        image available.
+        image available. Sources in exclude are skipped.
         """
         area_bounding = area.to_ee_box()
         center = ee.Date(date)
         shifts = [self.step_search_image * k for k in range(1, self.nb_max_step_search + 1)]
         sources = SEARCH_ORDER if self.data_source == DataSource.AUTO else [self.data_source]
+        sources = [source for source in sources if source not in exclude]
+        if not sources:
+            return None
 
         sizes = {}
         for source in sources:
@@ -354,18 +365,25 @@ class Preprocessor:
                 sys.stdout.flush()
             return self._build_image(date, area, raw, DataSource[meta["source"]], meta["resolution"])
 
-        found = self._find_source_window(date, area)
-        if found is None:
-            return None
-        source, shift_day, with_dw = found
-        if self.flag_verbose:
-            print(f"{date}: data source: {source} (+-{shift_day} days, dynamic world: {with_dw})")
-            sys.stdout.flush()
+        rejected = []
+        while True:
+            found = self._find_source_window(date, area, rejected)
+            if found is None:
+                return None
+            source, shift_day, with_dw = found
+            if self.flag_verbose:
+                print(f"{date}: data source: {source} (+-{shift_day} days, dynamic world: {with_dw})")
+                sys.stdout.flush()
 
-        resolution = SOURCES[source]["resolution"]
-        ee_image = self._composite(date, area, source, shift_day, with_dw)
-        raw = self.download_numpy_data(
-            ee_image, area, RAW_BANDS + (["dw", "dw_trees_p"] if with_dw else []), resolution)
+            resolution = SOURCES[source]["resolution"]
+            ee_image = self._composite(date, area, source, shift_day, with_dw)
+            raw = self.download_numpy_data(
+                ee_image, area, RAW_BANDS + (["dw", "dw_trees_p"] if with_dw else []), resolution)
+            valid_fraction = float(((raw["red"] > 0) & (raw["nir"] > 0) & (raw["swir"] > 0)).mean())
+            if valid_fraction >= MIN_VALID_FRACTION:
+                break
+            print(f"{date}: {source} composite has {valid_fraction:.0%} valid pixels, trying the next source")
+            rejected.append(source)
         self._cache_write(cache_path, raw, {"source": source.name, "resolution": resolution})
         return self._build_image(date, area, raw, source, resolution)
 
@@ -510,6 +528,22 @@ def _selftest():
     image = processor._build_image("2005-02-15", area, raw, DataSource.LANDSAT5, 30.0)
     assert abs(image.bands["ndvi"][0, 0] - 0.5) < 1e-3, image.bands["ndvi"][0, 0]
     assert abs(image.bands["ndmi"][0, 0] - 0.2) < 1e-3, image.bands["ndmi"][0, 0]  # swir != nir
+
+    # A mostly masked Sentinel-2 composite falls back to the next source
+    empty = numpy.zeros((2, 2), dtype=[("red", "<u2"), ("nir", "<u2"), ("swir", "<u2")])
+    full = empty.copy()
+    for band in RAW_BANDS:
+        full[band] = 1000
+    processor.online = True
+    processor._find_source_window = lambda date, area, exclude=(): (
+        (DataSource.SENTINEL2, 30, False) if DataSource.SENTINEL2 not in exclude else (DataSource.LANDSAT8, 30, False))
+    processor._composite = lambda date, area, source, shift, with_dw: source
+    processor.download_numpy_data = lambda ee_image, area, bands, resolution: empty if ee_image == DataSource.SENTINEL2 else full
+    image = processor._get_satellite_image("2020-02-15", area)
+    assert image.source == DataSource.LANDSAT8, image.source
+    processor.download_numpy_data = lambda ee_image, area, bands, resolution: empty
+    processor._find_source_window = lambda date, area, exclude=(): None if exclude else (DataSource.SENTINEL2, 30, False)
+    assert processor._get_satellite_image("2020-02-15", area) is None  # nothing valid -> year omitted
 
     print("preprocessing selftest OK")
 

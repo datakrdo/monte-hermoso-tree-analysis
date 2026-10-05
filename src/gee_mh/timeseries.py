@@ -14,8 +14,8 @@ from typing import Dict, List, Optional
 from gee_mh.preprocessing import Preprocessor, DataSource, SatelliteImage, LongLatBBox
 
 # Día del año usado para todas las composiciones (15 de febrero = pleno
-# verano austral). search_dataset_range ya expande la ventana +-5/10 días si
-# no hay imagen exacta.
+# verano austral). El preprocesador compone la mediana de las escenas en
+# una ventana de +-30 días alrededor de esa fecha.
 SEASONAL_MONTH_DAY = (2, 15)
 
 MAX_WORKERS = 4
