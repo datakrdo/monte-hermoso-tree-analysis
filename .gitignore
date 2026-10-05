@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+data/exports/
+*.tif
+*.geotiff
+.env
+data/cache/
+.pytest_cache/

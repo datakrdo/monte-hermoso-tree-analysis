@@ -1,0 +1,45 @@
+monte-hermoso-tree-analysis
+===========================
+
+Origin
+------
+The idea and the initial design of this project come from the Omdena
+"Cordoba, Argentina Chapter" project, "Change Detection in Satellite Imagery:
+Monitoring Land Use Transformation in Cordoba, Argentina":
+https://github.com/OmdenaAI/CordobaArgentinaChapter_MonitoringLandUseTransformation
+
+No files from that repository are included here; the code in this repository
+was written for Monte Hermoso.
+
+Data sources
+------------
+Data are read at runtime from Google Earth Engine and are not redistributed in
+this repository, except the municipality boundary (data/aoi/monte_hermoso.geojson).
+
+- Sentinel-2 SR Harmonized (COPERNICUS/S2_SR_HARMONIZED): Copernicus Sentinel
+  Data Terms and Conditions. "Contains modified Copernicus Sentinel data".
+- Landsat Collection 2 Level-2 (Landsat 5/7/8/9): U.S. Geological Survey, public
+  domain. Landsat imagery courtesy of the U.S. Geological Survey.
+- Dynamic World v1 (GOOGLE/DYNAMICWORLD/V1): CC BY 4.0. Produced for the Dynamic
+  World Project by Google in partnership with National Geographic Society and
+  World Resources Institute. Contains modified Copernicus Sentinel data.
+  Brown, C.F., Brumby, S.P., Guzder-Williams, B. et al. Dynamic World, Near
+  real-time global 10 m land use land cover mapping. Sci Data 9, 251 (2022).
+  https://doi.org/10.1038/s41597-022-01307-4
+- Cloud Score+ S2_HARMONIZED (GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED): CC BY 4.0.
+  Pasquarella, V. J., Brown, C. F., Czerwinski, W., Rucklidge, W. J. (2023).
+  Comprehensive Quality Assessment of Optical Satellite Imagery Using Weakly
+  Supervised Video Learning. CVPR Workshops, 2125-2135.
+  https://doi.org/10.1109/CVPRW59228.2023.00206
+- Hansen Global Forest Change (UMD/hansen/global_forest_change_2025_v1_13): CC BY 4.0.
+  Hansen, M. C. et al. (2013). High-Resolution Global Maps of 21st-Century Forest
+  Cover Change. Science 342, 850-853. https://doi.org/10.1126/science.1244693
+- MapBiomas Pampa Collection 4 (projects/mapbiomas-public/assets/pampa/collection4/...):
+  used under the MapBiomas terms of use (https://pampa.mapbiomas.org/en/terms-of-use/),
+  which state a CC BY-SA license; other MapBiomas pages state CC BY 4.0. This
+  repository does not redistribute MapBiomas layers. Project MapBiomas
+  Trinational Pampa - Collection 4 of the Annual Land Cover and Land Use Maps in
+  Trinational Pampa, accessed in 2026 through https://pampa.mapbiomas.org
+- Municipality boundary: IGN Argentina, via Georef (datos.gob.ar), CC BY 4.0.
+  Servicio Georef - https://www.argentina.gob.ar/georef . The file in
+  data/aoi/ is modified: the fields area_km2, source and source_date were added.
