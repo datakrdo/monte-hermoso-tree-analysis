@@ -1,0 +1,29 @@
+ee_project: gee-mh
+
+aoi:
+  path: data/aoi/monte_hermoso.geojson
+  # Fuente pública usada para el límite del partido (paso 2 del plan).
+  # Reemplazar por un shapefile/GeoJSON oficial de la municipalidad cuando
+  # esté disponible (override local).
+  source: "IGN Argentina - Capas SIG 250k, límites de partidos de Buenos Aires"
+  source_date: null  # se completa al descargar el límite (paso 2)
+
+period:
+  start_year: 2000
+  end_year: null  # null = año actual
+
+sensors:
+  landsat:
+    years: [2000, 2014]
+    scale_m: 30
+  sentinel2:
+    years: [2015, null]  # null = hasta el presente
+    scale_m: 10
+
+max_cloud_coverage: 35.0
+
+detection:
+  min_event_area_m2: 1000
+  # 2 = la disminución debe seguir presente en el año siguiente para confirmarse
+  # (descarta fenología/cosecha); 1 = sin confirmación.
+  min_persistence_years: 2

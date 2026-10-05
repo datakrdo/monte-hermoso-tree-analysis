@@ -1,0 +1,8 @@
+earthengine-api
+numpy
+geopandas
+shapely
+pandas
+opencv-python
+pyyaml
+rasterio

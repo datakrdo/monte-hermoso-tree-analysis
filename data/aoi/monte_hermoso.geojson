@@ -1,0 +1,8 @@
+{
+"type": "FeatureCollection",
+"name": "monte_hermoso",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { "id": "06553", "nombre": "Monte Hermoso", "nombre_completo": "Partido de Monte Hermoso", "provincia": { "id": "06", "nombre": "Buenos Aires", "interseccion": 0.0 }, "fuente": "IGN", "categoria": "Partido", "centroide": { "lon": -61.292146695, "lat": -38.961623789 }, "source": "datos.gob.ar/georef (IGN)", "source_date": "2026-09-11", "area_km2": 208.47211406687714 }, "geometry": { "type": "Polygon", "coordinates": [ [ [ -61.342026, -38.915846 ], [ -61.314896, -38.946281 ], [ -61.13784, -38.929388 ], [ -61.105256, -38.979585 ], [ -61.119522, -38.981966 ], [ -61.110167, -38.99589 ], [ -61.45573, -38.995401 ], [ -61.45268, -38.924034 ], [ -61.342026, -38.915846 ] ] ] } }
+]
+}
