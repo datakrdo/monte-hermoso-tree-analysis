@@ -107,10 +107,10 @@ Measured on 2016-2023:
 |---|---|
 | Plain NDVI drop / class transition (82% inside the municipality) | 28,839 |
 | + stable woody mask, persistence, clip to municipality (100% inside), minimum area | 4,774 |
-| + 60-day cloud-masked composites, tree-probability baseline | 1,692 |
+| + 60-day cloud-masked composites, tree-probability baseline | 1,644 |
 
 The third baseline, `cva` (a minimal Change Vector Analysis with a statistical
-threshold), adds 922 events: 2,614 in total, all inside the municipality.
+threshold), adds 897 events: 2,541 in total, all inside the municipality.
 
 Fewer candidates does **not** by itself mean higher precision. What we know:
 
