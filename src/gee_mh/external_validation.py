@@ -106,7 +106,8 @@ def validate_year_pair(processor: Preprocessor, area, aoi, min_area_m2: float, m
 
     mb_year_from, mb_year_to = mapbiomas_years(year_from, year_to)
     mapbiomas = ee.Image(MAPBIOMAS_ASSET)
-    bands = [f"classification_{mb_year_from}", f"classification_{mb_year_to}"]
+    # años capados iguales (ej. 2024->2025 -> 2023, 2023): no repetir la banda
+    bands = list(dict.fromkeys([f"classification_{mb_year_from}", f"classification_{mb_year_to}"]))
     # MapBiomas es un producto de 30 m: bajarlo a 10 m solo repite píxeles.
     class_bands = processor.cached(
         ("mapbiomas", MAPBIOMAS_ASSET, *bands, area),

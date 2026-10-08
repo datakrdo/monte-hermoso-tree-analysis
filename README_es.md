@@ -109,10 +109,10 @@ Medido en 2016-2023:
 |---|---|
 | Caída de NDVI / transición de clase simple (82% dentro del partido) | 28.839 |
 | + máscara leñosa estable, persistencia, recorte al partido (100% dentro), área mínima | 4.774 |
-| + compuestos de 60 días sin nubes, baseline por probabilidad de árbol | 1.692 |
+| + compuestos de 60 días sin nubes, baseline por probabilidad de árbol | 1.644 |
 
 El tercer baseline, `cva` (un Change Vector Analysis mínimo con umbral
-estadístico), suma 922 eventos: 2.614 en total, todos dentro del partido.
+estadístico), suma 897 eventos: 2.541 en total, todos dentro del partido.
 
 Menos candidatos **no** significa por sí solo mayor precisión. Lo que sabemos:
 
