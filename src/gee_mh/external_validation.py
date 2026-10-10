@@ -1,8 +1,9 @@
 """Validación cruzada externa (ver plan `twinkling-mapping-quokka`): compara
-nuestras detecciones contra MapBiomas Pampa (referencia independiente,
-misma región/período) y, como chequeo secundario de bajo peso, contra Hansen
-Global Forest Change. No modifica preprocessing.py ni el pipeline propio -
-sólo lee sus salidas y consulta ee.Image adicionales sobre el mismo AOI.
+nuestras detecciones contra MapBiomas Argentina (referencia independiente,
+Landsat 30 m, 1985-2025) y, como chequeo secundario de bajo peso, contra Hansen
+Global Forest Change (sin pérdida registrada en el partido después de 2013).
+No modifica preprocessing.py ni el pipeline propio - sólo lee sus salidas y
+consulta ee.Image adicionales sobre el mismo AOI.
 
 Uso:
     # rápido: enriquece una muestra ya exportada (ej. manual_review_sample.csv)
@@ -11,7 +12,7 @@ Uso:
 
     # más caro: corre los 3 baselines sobre un rango de años y calcula
     # precision/recall/F1/IoU contra la máscara de pérdida leñosa de MapBiomas.
-    PYTHONPATH=src python3 -m gee_mh.external_validation --full --start-year 2016 --end-year 2020
+    PYTHONPATH=src python3 -m gee_mh.external_validation --full --start-year 2016 --end-year 2025
 """
 
 import argparse
@@ -25,25 +26,26 @@ from gee_mh.compare_baselines import BASELINES
 from gee_mh.config import PROJECT_ROOT, load_config
 from gee_mh.detection import detect_pair, resample_mask
 from gee_mh.masks import aoi_mask
-from gee_mh.pipeline import load_aoi_geometry, load_area
+from gee_mh.pipeline import load_aoi_geometry, load_area, load_regional_shifts
 from gee_mh.preprocessing import Preprocessor
 from gee_mh.timeseries import build_series_with_context
 from gee_mh.validation import compute_metrics
 
-MAPBIOMAS_ASSET = "projects/mapbiomas-public/assets/pampa/collection4/mapbiomas_pampa_collection4_integration_v1"
-MAPBIOMAS_LAST_YEAR = 2023  # último año de la colección 4; años posteriores se capan a este.
-# Clases "leñosas" según la leyenda oficial de la Colección 4 (pampa.mapbiomas.org/en/legend-codes,
-# PDF MBPampa_Col4_LegendCode): 3 = Bosque y arbustal cerrados, 4 = Bosque abierto,
-# 9 = Silvicultura (forestación) - se cuenta como leñosa porque es cobertura arbórea real,
-# aunque la leyenda la ubique bajo "Agropecuaria" en vez de "Vegetación natural leñosa".
-WOODY_CODES = {3, 4, 9}
+MAPBIOMAS_ASSET = "projects/mapbiomas-public/assets/argentina/lulc/collection3/mapbiomas_argentina_collection3_coverage_v1"
+MAPBIOMAS_LAST_YEAR = 2025  # último año de la colección 3; años posteriores se capan a este.
+# Clases "leñosas" según la leyenda de MapBiomas Argentina (user-toolkit de MapBiomas, legends.js):
+# 3 = Bosque cerrado, 4 = Bosque abierto, 5 = Manglar, 6 = Bosque inundable,
+# 9 = Plantación forestal (se cuenta como leñosa porque es cobertura arbórea real) y
+# 45 = Arbolado ralo. En el partido solo aparecen 4 y 9.
+WOODY_CODES = {3, 4, 5, 6, 9, 45}
+URBAN_CODE = 24  # Áreas urbanizadas
 MAPBIOMAS_RESOLUTION_M = 30.0
 HANSEN_ASSET = "UMD/hansen/global_forest_change_2025_v1_13"
 
 
 def mapbiomas_years(year_from: int, year_to: int) -> tuple:
-    """MapBiomas Pampa collection4 llega hasta MAPBIOMAS_LAST_YEAR; capar sin
-    romper si el par pedido es más reciente (ej. 2023->2024)."""
+    """MapBiomas Argentina collection3 llega hasta MAPBIOMAS_LAST_YEAR; capar sin
+    romper si el par pedido es más reciente (ej. 2025->2026)."""
     return min(year_from, MAPBIOMAS_LAST_YEAR), min(year_to, MAPBIOMAS_LAST_YEAR)
 
 
@@ -89,7 +91,7 @@ def enrich_events_with_external_reference(events: pandas.DataFrame) -> pandas.Da
     return out
 
 
-def validate_year_pair(processor: Preprocessor, area, aoi, min_area_m2: float, min_persistence: int, series: dict, year_from: int, year_to: int) -> dict:
+def validate_year_pair(processor: Preprocessor, area, aoi, min_area_m2: float, min_persistence: int, series: dict, year_from: int, year_to: int, shifts=None) -> dict:
     """
     Corre los tres baselines sobre (year_from, year_to) y los compara,
     píxel a píxel, contra la máscara de pérdida de vegetación leñosa
@@ -115,13 +117,15 @@ def validate_year_pair(processor: Preprocessor, area, aoi, min_area_m2: float, m
     class_t1 = class_bands[f"classification_{mb_year_from}"]
     class_t2 = class_bands[f"classification_{mb_year_to}"]
     ground_truth = woody_loss_mask(class_t1, class_t2)
+    urban_gain = urban_gain_mask(class_t1, class_t2)
 
     results = {}
     for baseline_name, detect_fn in BASELINES.items():
-        mask, confirmed = detect_pair(detect_fn, series, year_from, year_to, area, aoi, min_area_m2, min_persistence)
+        mask, confirmed = detect_pair(detect_fn, series, year_from, year_to, area, aoi, min_area_m2, min_persistence, shifts=shifts)
         if mask is None:
             continue
-        gt = resample_mask(ground_truth, mask.shape) & aoi_mask(area, aoi, mask.shape)
+        reference = urban_gain if baseline_name == "veg_to_built" else ground_truth
+        gt = resample_mask(reference, mask.shape) & aoi_mask(area, aoi, mask.shape)
         results[baseline_name] = (compute_metrics(mask, gt), confirmed)
     return results
 
@@ -129,6 +133,11 @@ def validate_year_pair(processor: Preprocessor, area, aoi, min_area_m2: float, m
 def woody_loss_mask(class_t1: numpy.ndarray, class_t2: numpy.ndarray) -> numpy.ndarray:
     """True donde MapBiomas marca clase leñosa (WOODY_CODES) en t1 y no leñosa en t2."""
     return numpy.isin(class_t1, list(WOODY_CODES)) & ~numpy.isin(class_t2, list(WOODY_CODES))
+
+
+def urban_gain_mask(class_t1: numpy.ndarray, class_t2: numpy.ndarray) -> numpy.ndarray:
+    """True donde MapBiomas no marca urbano en t1 y sí en t2."""
+    return (class_t1 != URBAN_CODE) & (class_t2 == URBAN_CODE)
 
 
 def run_enrich(events_path, out_path):
@@ -152,10 +161,11 @@ def run_full(start_year: int, end_year: int, out_path, small: bool = False):
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     series = build_series_with_context(processor, area, start_year, end_year)
+    shifts = load_regional_shifts(processor, start_year, end_year)
 
     rows = []
     for year_from, year_to in zip(range(start_year, end_year), range(start_year + 1, end_year + 1)):
-        metrics_by_baseline = validate_year_pair(processor, area, aoi, min_area_m2, min_persistence, series, year_from, year_to)
+        metrics_by_baseline = validate_year_pair(processor, area, aoi, min_area_m2, min_persistence, series, year_from, year_to, shifts)
         for baseline_name, (metrics, confirmed) in metrics_by_baseline.items():
             row = {"year_from": year_from, "year_to": year_to, "baseline": baseline_name, "confirmed": confirmed}
             row.update(dataclasses.asdict(metrics))
@@ -174,10 +184,12 @@ def run_full(start_year: int, end_year: int, out_path, small: bool = False):
 
 
 def selftest():
-    class_t1 = numpy.array([[3, 12], [15, 9]])  # bosque cerrado, pastizal / pastura, silvicultura
-    class_t2 = numpy.array([[12, 12], [15, 22]])  # bosque cerrado -> pastizal (pérdida); silvicultura -> área sin vegetación (pérdida)
+    class_t1 = numpy.array([[3, 12], [15, 9]])  # bosque cerrado, pastizal / pastura, plantación forestal
+    class_t2 = numpy.array([[12, 12], [15, 22]])  # bosque cerrado -> pastizal (pérdida); plantación -> área sin vegetación (pérdida)
     mask = woody_loss_mask(class_t1, class_t2)
     assert mask.tolist() == [[True, False], [False, True]], mask
+    assert urban_gain_mask(numpy.array([[12, 24]]), numpy.array([[24, 24]])).tolist() == [[True, False]]
+    assert mapbiomas_years(2025, 2026) == (2025, 2025)
     print("woody_loss_mask OK")
 
 

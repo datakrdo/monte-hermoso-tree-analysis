@@ -1,4 +1,4 @@
-"""Serie temporal anual comparable (paso 4 del plan).
+"""Serie temporal anual comparable.
 
 Una imagen por año, tomada en la misma ventana estacional (verano austral,
 menor nubosidad y mayor vigor de vegetación en la costa bonaerense). El modo

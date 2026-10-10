@@ -1,8 +1,11 @@
 ee_project: gee-mh
 
 aoi:
-  path: data/aoi/monte_hermoso.geojson
-  # Fuente pública usada para el límite del partido (paso 2 del plan).
+  # Zona de estudio: casco urbano de Monte Hermoso, alrededores y Balneario Sauce Grande (python3 -m gee_mh.aoi --zona)
+  path: data/aoi/zona_urbana.geojson
+  # Límite del partido completo: referencia regional (corrimiento de NDVI) y contexto.
+  partido_path: data/aoi/monte_hermoso.geojson
+  # Fuente pública usada para el límite del partido.
   # Reemplazar por un shapefile/GeoJSON oficial de la municipalidad cuando
   # esté disponible (override local).
   source: "IGN Argentina - Capas SIG 250k, límites de partidos de Buenos Aires"
@@ -23,7 +26,7 @@ sensors:
 max_cloud_coverage: 35.0
 
 detection:
-  min_event_area_m2: 1000
+  min_event_area_m2: 500  # un lote suele medir 600 a 1.800 m2 (la pista de 30 m usa longterm.MIN_EVENT_AREA_M2)
   # 2 = la disminución debe seguir presente en el año siguiente para confirmarse
   # (descarta fenología/cosecha); 1 = sin confirmación.
   min_persistence_years: 2

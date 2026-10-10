@@ -1,4 +1,4 @@
-"""Validación local (paso 8 del plan): métricas de detección y muestreo
+"""Validación local: métricas de detección y muestreo
 estratificado de eventos para revisión manual contra imágenes de alta
 resolución. Los umbrales se calibran solo con muestras de Monte Hermoso, no
 se importan de otras regiones.

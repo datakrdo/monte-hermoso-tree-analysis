@@ -1,4 +1,4 @@
-"""Conversión de pérdida de copa a árboles estimados (paso 7 del plan).
+"""Conversión de pérdida de copa a árboles estimados.
 
 La métrica primaria y defendible es m2/ha de copa perdida. La conversión a
 "número de árboles" solo tiene sentido con una densidad calibrada
@@ -12,7 +12,7 @@ from dataclasses import dataclass
 # NOTE: densidades de referencia (árboles/ha) sin calibrar a Monte
 # Hermoso todavía - documentan un rango plausible, no una medición local.
 # Upgrade: reemplazar por densidad medida en parcelas de campo o inventario
-# municipal (paso 7 del plan) y marcar is_calibrated=True.
+# municipal y marcar is_calibrated=True.
 REFERENCE_DENSITY_URBAN = (40, 120)  # árboles/ha, arbolado urbano/costero disperso
 REFERENCE_DENSITY_NATURAL = (150, 400)  # árboles/ha, monte/matorral natural denso
 
@@ -42,7 +42,7 @@ def estimate_trees(
     """
     area_m2: superficie de copa perdida
     is_urban: separa vegetación urbana de vegetación natural (densidades muy
-    distintas, paso 6 del plan original)
+    distintas)
     density_range_trees_per_ha: (low, high) árboles/ha; si no se da, usa la
     densidad de referencia sin calibrar y is_calibrated se fuerza a False
     """

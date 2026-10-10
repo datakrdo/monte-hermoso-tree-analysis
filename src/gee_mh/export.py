@@ -1,15 +1,15 @@
-"""Exportes finales (paso 9 del plan): GeoTIFF de pérdida, GeoJSON de
+"""Exportes finales: GeoTIFF de pérdida, GeoJSON de
 eventos y CSV anual por causa. Sin API/frontend en este entregable.
 """
 
 from pathlib import Path
 from typing import List
 
-import cv2
 import geopandas
 import numpy
 import pandas
 import rasterio
+from rasterio.features import shapes as rasterio_shapes
 from rasterio.transform import from_bounds
 from shapely.geometry import shape
 
@@ -21,23 +21,15 @@ def mask_to_polygons(area: LongLatBBox, mask: numpy.ndarray):
     Convierte una máscara booleana (en la grilla común de un par de años, ver
     detection.align_pair) en polígonos shapely en WGS84, indexando por la forma
     real de la máscara y no por el tamaño de la imagen, que puede no coincidir
-    tras el remuestreo entre sensores. La fila 0 es el borde norte.
+    tras el remuestreo entre sensores. La fila 0 es el borde norte. Los
+    polígonos siguen los bordes de los píxeles (un bloque de 5x5 píxeles da
+    25 píxeles de área, con sus huecos), y cada región conectada en 8
+    direcciones es un solo polígono.
     """
     height, width = mask.shape
-    contours, _ = cv2.findContours(mask.astype(numpy.uint8), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-    polygons = []
-    for contour in contours:
-        if len(contour) < 3:
-            continue
-        coords = [
-            (
-                float(x) / width * (area.long_to - area.long_from) + area.long_from,
-                area.lat_to - float(y) / height * (area.lat_to - area.lat_from),
-            )
-            for [[x, y]] in contour
-        ]
-        polygons.append(shape({"type": "Polygon", "coordinates": [coords]}))
-    return polygons
+    transform = from_bounds(area.long_from, area.lat_from, area.long_to, area.lat_to, width, height)
+    return [shape(geometry) for geometry, _ in rasterio_shapes(
+        mask.astype(numpy.uint8), mask=mask.astype(bool), connectivity=8, transform=transform)]
 
 
 def export_events_geojson(events: List[dict], out_path: Path) -> geopandas.GeoDataFrame:
@@ -109,7 +101,14 @@ if __name__ == "__main__":
 
     polygons = mask_to_polygons(area, mask)
     assert len(polygons) == 1
-    assert polygons[0].area > 0
+    pixel_area = (area.long_to - area.long_from) / 20 * (area.lat_to - area.lat_from) / 20
+    assert abs(polygons[0].area - 25 * pixel_area) < 1e-12, polygons[0].area / pixel_area  # 5x5 píxeles, no 4x4
+    ring = mask.copy()
+    ring[7, 7] = False  # un hueco no es otro evento
+    assert len(mask_to_polygons(area, ring)) == 1
+    diagonal = numpy.zeros((20, 20), dtype=bool)
+    diagonal[1, 1] = diagonal[2, 2] = True  # conectados en diagonal: un solo evento
+    assert len(mask_to_polygons(area, diagonal)) == 1
     north = numpy.zeros((20, 20), dtype=bool)
     north[0:5, :] = True  # fila 0 = borde norte
     assert mask_to_polygons(area, north)[0].centroid.y > area.lat_from + 0.5 * (area.lat_to - area.lat_from)

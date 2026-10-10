@@ -28,16 +28,16 @@ RAW_BANDS = ["red", "nir", "swir"]
 
 # Bump when anything that changes the downloaded data changes (bands, scale,
 # collections, grid), to invalidate the disk cache
-CACHE_VERSION = 3
+CACHE_VERSION = 4
 DEFAULT_CACHE_DIR = PROJECT_ROOT / "data" / "cache"
 
 # Cloud Score+ (Sentinel-2): pixels with cs_cdf below this are masked
 CLOUD_SCORE_PLUS = "GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED"
 CLOUD_SCORE_MIN = 0.6
 
-# Max number of pixels per computePixels request (8 bytes/pixel for the raw
-# bands + dynamic world label and trees probability: stays well under the
-# 48MB request limit)
+# Max number of pixels per computePixels request (9 bytes/pixel for the raw
+# bands + dynamic world label, trees and built probabilities: stays well
+# under the 48MB request limit)
 MAX_PIXELS_PER_REQUEST = 4_000_000
 
 METERS_PER_DEGREE_LAT = 111_320.0
@@ -150,6 +150,8 @@ class SatelliteImage:
         self.dw_label = None
         # Dynamic World mean probability of 'trees' (0-100); None before 2015-06-27
         self.dw_trees_p = None
+        # Dynamic World mean probability of 'built' (0-100); None before 2015-06-27
+        self.dw_built_p = None
         self.mean_ndvi = 0.0
 
     def __str__(self):
@@ -327,10 +329,11 @@ class Preprocessor:
         ee_image = collection.median().select(SOURCES[source]["bands"], RAW_BANDS).toUint16()
         if with_dw:
             dynamic_world = self._dynamic_world(area_bounding, center, shift_day)
-            # Most frequent label, and mean probability of 'trees' (x100)
+            # Most frequent label, and mean probability of 'trees' and 'built' (x100)
             ee_dw = dynamic_world.select("label").mode().unmask(DW_NO_DATA).toUint8().rename("dw")
             ee_trees = dynamic_world.select("trees").mean().multiply(100).unmask(0).toUint8().rename("dw_trees_p")
-            ee_image = ee_image.addBands([ee_dw, ee_trees])
+            ee_built = dynamic_world.select("built").mean().multiply(100).unmask(0).toUint8().rename("dw_built_p")
+            ee_image = ee_image.addBands([ee_dw, ee_trees, ee_built])
         return ee_image
 
     def get_dummy_image(self, date: str, area: LongLatBBox) -> SatelliteImage:
@@ -378,7 +381,7 @@ class Preprocessor:
             resolution = SOURCES[source]["resolution"]
             ee_image = self._composite(date, area, source, shift_day, with_dw)
             raw = self.download_numpy_data(
-                ee_image, area, RAW_BANDS + (["dw", "dw_trees_p"] if with_dw else []), resolution)
+                ee_image, area, RAW_BANDS + (["dw", "dw_trees_p", "dw_built_p"] if with_dw else []), resolution)
             valid_fraction = float(((raw["red"] > 0) & (raw["nir"] > 0) & (raw["swir"] > 0)).mean())
             if valid_fraction >= MIN_VALID_FRACTION:
                 break
@@ -414,21 +417,24 @@ class Preprocessor:
         if "dw" in raw.dtype.names:
             image.dw_label = raw["dw"]
             image.dw_trees_p = raw["dw_trees_p"]
+            image.dw_built_p = raw["dw_built_p"]
         image.mean_ndvi = float(image.bands["ndvi"].mean())
         return image
 
-    def download_numpy_data(self, ee_image: ee.Image, area: LongLatBBox, bands_name: List[str], resolution: float=None) -> numpy.array:
+    def download_numpy_data(self, ee_image: ee.Image, area: LongLatBBox, bands_name: List[str], resolution: float=None, max_pixels: int=None) -> numpy.array:
         """
         Download bands_name of ee_image over area as a structured array of
         shape (height, width) with one field per band. The grid spans the area
         exactly; large areas go out in row chunks, one request each.
         resolution: meters per pixel (default self.resolution).
+        max_pixels: pixels per request (default MAX_PIXELS_PER_REQUEST); lower
+        it for heavy server-side computations or many bands.
         """
         resolution = resolution or self.resolution
         width, height = grid_size(area, resolution)
         dx = (area.long_to - area.long_from) / width
         dy = (area.lat_to - area.lat_from) / height
-        rows_per_request = max(1, MAX_PIXELS_PER_REQUEST // width)
+        rows_per_request = max(1, (max_pixels or MAX_PIXELS_PER_REQUEST) // width)
 
         chunks = []
         for row in range(0, height, rows_per_request):
@@ -510,9 +516,10 @@ def _selftest():
         ee.data.computePixels, time.sleep, MAX_PIXELS_PER_REQUEST = orig_compute, orig_sleep, orig_max_pixels
 
     processor.gaussian_blur = {"radius": 0, "sigma": 0.5}
-    raw = numpy.zeros((2, 2), dtype=[("red", "<u2"), ("nir", "<u2"), ("swir", "<u2"), ("dw", "u1"), ("dw_trees_p", "u1")])
+    raw = numpy.zeros((2, 2), dtype=[("red", "<u2"), ("nir", "<u2"), ("swir", "<u2"), ("dw", "u1"), ("dw_trees_p", "u1"), ("dw_built_p", "u1")])
     raw["dw"] = DW_NO_DATA
     raw["dw_trees_p"][0, 0] = 87
+    raw["dw_built_p"][0, 0] = 12
     raw["dw"][0, 0] = DYNAMIC_WORLD_CLASSES.index("trees")
 
     raw["red"][0, 0], raw["nir"][0, 0], raw["swir"][0, 0] = 2000, 6000, 4000
@@ -520,7 +527,7 @@ def _selftest():
     assert abs(image.bands["ndvi"][0, 0] - 0.5) < 1e-6, image.bands["ndvi"][0, 0]
     assert image.bands["ndvi"][1, 1] == 0.0  # no data
     assert image.to_dynamic_world_mask("trees")[0, 0] and not image.to_dynamic_world_mask("water").any()
-    assert image.dw_trees_p[0, 0] == 87
+    assert image.dw_trees_p[0, 0] == 87 and image.dw_built_p[0, 0] == 12
 
     # Landsat C2: reflectance = DN * 2.75e-5 - 0.2 -> red 0.1, nir 0.3, ndvi 0.5
     # (0.25 if the offset were ignored)

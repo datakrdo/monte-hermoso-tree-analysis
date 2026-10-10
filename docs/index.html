@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monte Hermoso y Sauce Grande: cómo cambió el verde, 1986-2026</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  .viz-root {
+    color-scheme: light;
+    --surface-1: #fcfcfb; --text-primary: #0b0b0b; --text-secondary: #52514e; --grid: #e4e3df;
+    --loss: #e34948; --gain: #1baf7a; --built: #eb6834; --line: #2a78d6;
+  }
+  @media (prefers-color-scheme: dark) {
+    .viz-root {
+      color-scheme: dark;
+      --surface-1: #1a1a19; --text-primary: #ffffff; --text-secondary: #c3c2b7; --grid: #3a3a37;
+      --loss: #e66767; --gain: #199e70; --built: #d95926; --line: #3987e5;
+    }
+  }
+  html, body { height: 100%; margin: 0; }
+  body { font: 14px/1.4 system-ui, sans-serif; background: var(--surface-1); color: var(--text-primary); display: flex; flex-direction: column; }
+  header { padding: 10px 14px 6px; }
+  h1 { font-size: 18px; margin: 0 0 2px; }
+  header p { margin: 0; color: var(--text-secondary); font-size: 12px; }
+  #map { flex: 1; min-height: 300px; }
+  .controls { padding: 8px 14px; display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; border-top: 1px solid var(--grid); }
+  .controls label { display: inline-flex; gap: 6px; align-items: center; color: var(--text-secondary); }
+  #year-label { font-weight: 700; min-width: 3.2em; }
+  #year { flex: 1 1 260px; }
+  button { font: inherit; padding: 4px 12px; border: 1px solid var(--grid); background: var(--surface-1); color: var(--text-primary); border-radius: 6px; cursor: pointer; }
+  .swatch { width: 10px; height: 10px; display: inline-block; border-radius: 2px; }
+  #chart { width: 100%; height: 96px; display: block; }
+  #tooltip { position: absolute; pointer-events: none; background: var(--surface-1); color: var(--text-primary); border: 1px solid var(--grid); border-radius: 6px; padding: 4px 8px; font-size: 12px; display: none; }
+  footer { padding: 6px 14px 10px; font-size: 11px; color: var(--text-secondary); }
+  footer a { color: inherit; }
+</style>
+</head>
+<body class="viz-root">
+<header>
+  <h1>Monte Hermoso y Balneario Sauce Grande: cómo cambió el verde, 1986-2026</h1>
+  <p>Compuestos de verano. Cada cambio es un <strong>candidato</strong> detectado en la señal satelital, todavía no verificado en terreno. La pérdida de árboles (30 m) solo cuenta cambios que siguen presentes tres años después.</p>
+</header>
+<div id="map"></div>
+<div class="controls">
+  <button id="play" aria-label="Reproducir">▶ Reproducir</button>
+  <span id="zoom-buttons" style="display:inline-flex;gap:6px"></span>
+  <label id="year-wrap">Año <span id="year-label">2026</span></label>
+  <input id="year" type="range" min="1986" max="2026" value="2026" aria-label="Año">
+  <span id="sensor" style="color:var(--text-secondary)"></span>
+</div>
+<div class="controls">
+  <label><input type="checkbox" id="l-loss" checked><span class="swatch" style="background:var(--loss)"></span>Pérdida de árboles (30 m)</label>
+  <label><input type="checkbox" id="l-gain" checked><span class="swatch" style="background:var(--gain)"></span>Ganancia de árboles (30 m)</label>
+  <label><input type="checkbox" id="l-s2"><span class="swatch" style="background:none;border:2px solid var(--loss)"></span>Eventos Sentinel-2 confirmados, 10 m (<span class="swatch" style="background:none;border:2px solid var(--built)"></span> vegetación → construido), 2017+</label>
+  <label>Imagen <input type="range" id="opacity" min="0" max="100" value="100" aria-label="Opacidad de la imagen"></label>
+  <label><input type="checkbox" id="cumulative" checked>Acumulado hasta el año</label>
+</div>
+<div style="padding:0 14px; position:relative"><svg id="chart" role="img" aria-label="Cobertura arbórea del partido por año"></svg><div id="tooltip"></div></div>
+<footer>
+  Contains modified Copernicus Sentinel data · Courtesy U.S. Geological Survey (Landsat) · Cloud Score+ y Dynamic World (Google, CC BY 4.0) ·
+  Base: © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · Código y método:
+  README del repositorio. Los cambios entre períodos no prueban su causa.
+</footer>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(async () => {
+  const meta = await (await fetch("data/meta.json")).json();
+  const longterm = await (await fetch("data/longterm_events.geojson")).json();
+  const sentinel = await (await fetch("data/sentinel_events.geojson")).json();
+  const zona = await (await fetch("data/zona.geojson")).json();
+  const css = (name) => getComputedStyle(document.body).getPropertyValue(name).trim();
+  const colors = { loss: css("--loss"), gain: css("--gain"), veg_to_built: css("--built") };
+  const frames = Object.fromEntries(meta.frames.map((f) => [f.year, f]));
+  const years = meta.frames.map((f) => f.year);
+  const slider = document.getElementById("year");
+  slider.min = years[0]; slider.max = years[years.length - 1]; slider.value = years[years.length - 1];
+
+  const panels = meta.panels;
+  const allBounds = L.latLngBounds(Object.values(panels).flatMap((p) => p.bounds));
+  const map = L.map("map", { zoomSnap: 0.25 }).fitBounds(allBounds);
+  const zoomButtons = document.getElementById("zoom-buttons");
+  const addZoom = (label, bounds) => {
+    const b = document.createElement("button");
+    b.textContent = label; b.addEventListener("click", () => map.fitBounds(bounds)); zoomButtons.appendChild(b);
+  };
+  Object.values(panels).forEach((p) => addZoom(p.name.split(" y ")[0], p.bounds));
+  addZoom("Toda la zona", allBounds);
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map);
+  const overlays = Object.fromEntries(Object.entries(panels).map(([key, p]) => [key, L.imageOverlay(`frames/${key}/${slider.value}.jpg`, p.bounds).addTo(map)]));
+  L.geoJSON(zona, { style: { color: "#ffffff", weight: 1.5, fill: false, dashArray: "4 4" }, interactive: false }).addTo(map);
+  const eventLayer = L.layerGroup().addTo(map);
+  const sentinelLayer = L.layerGroup();
+
+  const on = (id) => document.getElementById(id).checked;
+  function draw() {
+    const year = +slider.value;
+    document.getElementById("year-label").textContent = year;
+    const frame = frames[year];
+    document.getElementById("sensor").textContent = frame.sensor + (year < 2017 ? " · nubes y huecos rellenados con años vecinos" : "");
+    Object.entries(overlays).forEach(([key, overlay]) => {
+      overlay.setUrl(`frames/${key}/${year}.jpg`);
+      overlay.setOpacity(document.getElementById("opacity").value / 100);
+    });
+    const visible = (f) => (on("cumulative") ? f.properties.year_to <= year : f.properties.year_to === year);
+    eventLayer.clearLayers();
+    const enabled = { loss: on("l-loss"), gain: on("l-gain") };
+    const features = longterm.features.filter((f) => enabled[f.properties.kind] && visible(f));
+    eventLayer.addLayer(L.geoJSON(features, {
+      style: (f) => ({ color: colors[f.properties.kind], weight: 0.5, fillColor: colors[f.properties.kind], fillOpacity: 0.7 }),
+      onEachFeature: (f, layer) => layer.bindTooltip(`${f.properties.kind === "loss" ? "Pérdida" : "Ganancia"} ${f.properties.year_to} · ${Math.round(f.properties.area_m2).toLocaleString("es-AR")} m²`),
+    }));
+    sentinelLayer.clearLayers();
+    if (on("l-s2")) {
+      sentinelLayer.addLayer(L.geoJSON(sentinel.features.filter(visible), {
+        style: (f) => ({ color: f.properties.baseline === "veg_to_built" ? css("--built") : colors.loss, weight: 1.2, fill: false }),
+        onEachFeature: (f, layer) => layer.bindTooltip(`Sentinel-2 ${f.properties.year_to} · ${Math.round(f.properties.area_m2).toLocaleString("es-AR")} m² · causa: ${f.properties.cause}`),
+      }));
+      sentinelLayer.addTo(map);
+    } else map.removeLayer(sentinelLayer);
+    drawChart(year);
+  }
+
+  const svg = document.getElementById("chart");
+  const tip = document.getElementById("tooltip");
+  function drawChart(current) {
+    const W = svg.clientWidth || 800, H = 96, m = { l: 44, r: 12, t: 10, b: 20 };
+    const xs = Object.keys(meta.tree_ha).map(Number), ys = xs.map((x) => meta.tree_ha[x]);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys) * 0.9, y1 = Math.max(...ys) * 1.05;
+    const sx = (x) => m.l + ((x - x0) / (x1 - x0)) * (W - m.l - m.r), sy = (y) => H - m.b - ((y - y0) / (y1 - y0)) * (H - m.t - m.b);
+    const path = xs.map((x, i) => `${i ? "L" : "M"}${sx(x).toFixed(1)},${sy(ys[i]).toFixed(1)}`).join("");
+    const ord = meta.ordinance_year;
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.innerHTML = `
+      <line x1="${m.l}" x2="${W - m.r}" y1="${sy(y0)}" y2="${sy(y0)}" stroke="${css("--grid")}"/>
+      <text x="4" y="${m.t + 8}" font-size="10" fill="${css("--text-secondary")}">${Math.round(y1)} ha</text>
+      <text x="4" y="${H - m.b}" font-size="10" fill="${css("--text-secondary")}">${Math.round(y0)} ha</text>
+      <line x1="${sx(ord)}" x2="${sx(ord)}" y1="${m.t}" y2="${H - m.b}" stroke="${css("--text-secondary")}" stroke-dasharray="3 3"/>
+      <text x="${sx(ord) + 4}" y="${m.t + 8}" font-size="10" fill="${css("--text-secondary")}">Ordenanza 1913 (2010)</text>
+      <path d="${path}" fill="none" stroke="${css("--line")}" stroke-width="1.6"/>
+      <circle cx="${sx(current)}" cy="${sy(meta.tree_ha[current] ?? y0)}" r="4.5" fill="${css("--line")}" stroke="${css("--surface-1")}" stroke-width="1.5"/>
+      <text x="${m.l}" y="${H - 4}" font-size="10" fill="${css("--text-secondary")}">${x0}</text>
+      <text x="${W - m.r}" y="${H - 4}" font-size="10" text-anchor="end" fill="${css("--text-secondary")}">${x1}</text>
+      <rect x="${m.l}" y="0" width="${W - m.l - m.r}" height="${H}" fill="transparent" id="hit"/>`;
+    svg.querySelector("#hit").addEventListener("mousemove", (e) => {
+      const rect = svg.getBoundingClientRect();
+      const year = Math.round(x0 + ((e.clientX - rect.left - m.l) / (rect.width - m.l - m.r)) * (x1 - x0));
+      if (meta.tree_ha[year] === undefined) return;
+      tip.style.display = "block"; tip.style.left = `${e.clientX - rect.left + 10}px`; tip.style.top = "0px";
+      tip.textContent = `${year}: ${meta.tree_ha[year].toLocaleString("es-AR")} ha`;
+    });
+    svg.querySelector("#hit").addEventListener("mouseleave", () => (tip.style.display = "none"));
+    svg.querySelector("#hit").addEventListener("click", (e) => {
+      const rect = svg.getBoundingClientRect();
+      const year = Math.round(x0 + ((e.clientX - rect.left - m.l) / (rect.width - m.l - m.r)) * (x1 - x0));
+      if (frames[year]) { slider.value = year; draw(); }
+    });
+  }
+
+  document.querySelectorAll(".controls input").forEach((el) => el.addEventListener("input", draw));
+  let timer = null;
+  document.getElementById("play").addEventListener("click", (e) => {
+    if (timer) { clearInterval(timer); timer = null; e.target.textContent = "▶ Reproducir"; return; }
+    if (+slider.value >= +slider.max) slider.value = slider.min;
+    e.target.textContent = "⏸ Pausar";
+    timer = setInterval(() => {
+      if (+slider.value >= +slider.max) { clearInterval(timer); timer = null; e.target.textContent = "▶ Reproducir"; return; }
+      slider.value = +slider.value + 1; draw();
+    }, 600);
+  });
+  window.addEventListener("resize", () => drawChart(+slider.value));
+  draw();
+})();
+</script>
+</body>
+</html>

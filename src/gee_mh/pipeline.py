@@ -1,5 +1,5 @@
 """Corrida del pipeline completo año a año sobre el AOI (o un recorte, para
-pruebas). Ata los pasos 4-9 del plan: serie temporal -> detección (3
+pruebas). Ata los pasos: serie temporal -> detección (3
 baselines) -> filtrado -> atribución -> exportes.
 
 Uso:
@@ -11,9 +11,9 @@ import datetime
 
 import geopandas as gpd
 
-from gee_mh.attribution import attribute_event
+from gee_mh.attribution import attribute_events, images_after
 from gee_mh.config import PROJECT_ROOT, load_config
-from gee_mh.detection import detect_loss_ndvi_diff, detect_pair
+from gee_mh.detection import detect_loss_ndvi_diff, detect_pair, pair_regional_shift, regional_shifts
 from gee_mh.export import export_annual_summary_csv, export_events_geojson, mask_to_polygons
 from gee_mh.preprocessing import Preprocessor, LongLatBBox
 from gee_mh.timeseries import build_series_with_context
@@ -35,6 +35,31 @@ def load_aoi_geometry():
     return gpd.read_file(PROJECT_ROOT / cfg["aoi"]["path"]).geometry.iloc[0]
 
 
+def load_partido_geometry():
+    """Polígono del partido completo (aoi.partido_path): referencia regional y contexto de la zona de estudio."""
+    return gpd.read_file(PROJECT_ROOT / load_config()["aoi"]["partido_path"]).geometry.iloc[0]
+
+
+def load_partido_area() -> LongLatBBox:
+    minx, miny, maxx, maxy = load_partido_geometry().bounds
+    return LongLatBBox(minx, maxx, miny, maxy)
+
+
+def load_regional_shifts(processor, start_year: int, end_year: int):
+    """
+    Corrimientos regionales de NDVI de cada par de años (ver detection.regional_shifts) medidos en todo el
+    partido. Con la zona de estudio chica, medirlos dentro de ella restaría un cambio real de la zona como
+    si fuera clima. None si la zona de estudio es el partido mismo (se miden adentro).
+    """
+    cfg = load_config()
+    if cfg["aoi"]["path"] == cfg["aoi"]["partido_path"]:
+        return None
+    area, aoi = load_partido_area(), load_partido_geometry()
+    series = build_series_with_context(processor, area, start_year, end_year)
+    years = sorted(series)
+    return regional_shifts(series, area, aoi, [(y, y + k) for y in years for k in (1, 2)])
+
+
 def run(start_year: int, end_year: int, small: bool):
     cfg = load_config()
     area = load_area(small)
@@ -45,6 +70,7 @@ def run(start_year: int, end_year: int, small: bool):
     processor = Preprocessor(ee_project=cfg["ee_project"])
     series = build_series_with_context(processor, area, start_year, end_year)
     years = sorted(series)
+    shifts = load_regional_shifts(processor, start_year, end_year)
 
     events = []
     for year_from, year_to in zip(years, years[1:]):
@@ -67,7 +93,7 @@ def run(start_year: int, end_year: int, small: bool):
         # rango 2000-presente. dynamic_world y cva se comparan en
         # compare_baselines.py.
         loss_mask, confirmed = detect_pair(
-            detect_loss_ndvi_diff, series, year_from, year_to, area, aoi, min_area_m2, min_persistence)
+            detect_loss_ndvi_diff, series, year_from, year_to, area, aoi, min_area_m2, min_persistence, shifts=shifts)
 
         print(
             f"{year_from}->{year_to}: ndvi_diff filtrado={loss_mask.sum()}px confirmado={confirmed}"
@@ -78,13 +104,9 @@ def run(start_year: int, end_year: int, small: bool):
             continue
 
         polygons = mask_to_polygons(area, loss_mask)
-        # NOTE: atribución con la máscara de pérdida completa del par de
-        # años, no aislada por polígono individual - la fracción built/water
-        # ya es específica del evento porque loss_mask solo tiene esos
-        # píxeles en 1; upgrade: aislar cada polígono si se necesita
-        # distinguir evidencia entre eventos que caen en el mismo par de años.
-        attribution = attribute_event(loss_mask, image_t1, image_t2)
-        for polygon in polygons:
+        ndvi_shift = (pair_regional_shift(shifts, series, year_from, year_to, area, aoi) or {}).get("ndvi", 0.0)
+        attributions = attribute_events(polygons, area, loss_mask.shape, image_t1, images_after(series, year_to))
+        for polygon, attribution in zip(polygons, attributions):
             events.append(
                 {
                     "geometry": polygon,
@@ -92,6 +114,8 @@ def run(start_year: int, end_year: int, small: bool):
                     "year_to": year_to,
                     "cause": attribution.cause,
                     "confidence": attribution.confidence,
+                    "built_fraction": attribution.evidence["built_fraction"],
+                    "ndvi_shift": ndvi_shift,
                     "sensor_change": sensor_change,
                     "confirmed": confirmed,
                 }

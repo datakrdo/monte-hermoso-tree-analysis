@@ -34,12 +34,41 @@ this repository, except the municipality boundary (data/aoi/monte_hermoso.geojso
 - Hansen Global Forest Change (UMD/hansen/global_forest_change_2025_v1_13): CC BY 4.0.
   Hansen, M. C. et al. (2013). High-Resolution Global Maps of 21st-Century Forest
   Cover Change. Science 342, 850-853. https://doi.org/10.1126/science.1244693
+- MapBiomas Argentina Collection 3 (projects/mapbiomas-public/assets/argentina/lulc/collection3/...):
+  CC BY 4.0, as stated on https://argentina.mapbiomas.org/descargas/mapas-de-la-coleccion/ .
+  This repository does not redistribute MapBiomas layers. Project MapBiomas
+  Argentina - Collection 3 of the Annual Land Cover and Land Use Maps of
+  Argentina, accessed in 2026 through https://argentina.mapbiomas.org
 - MapBiomas Pampa Collection 4 (projects/mapbiomas-public/assets/pampa/collection4/...):
-  used under the MapBiomas terms of use (https://pampa.mapbiomas.org/en/terms-of-use/),
-  which state a CC BY-SA license; other MapBiomas pages state CC BY 4.0. This
-  repository does not redistribute MapBiomas layers. Project MapBiomas
+  used only for the earlier comparison to 2023, under the MapBiomas terms of use
+  (https://pampa.mapbiomas.org/en/terms-of-use/), which state a CC BY-SA license;
+  other MapBiomas pages state CC BY 4.0. Not redistributed. Project MapBiomas
   Trinational Pampa - Collection 4 of the Annual Land Cover and Land Use Maps in
   Trinational Pampa, accessed in 2026 through https://pampa.mapbiomas.org
+- CHIRPS Daily (UCSB-CHG/CHIRPS/DAILY): public domain (copyright waived).
+  Funk, C. et al. (2015). The climate hazards infrared precipitation with
+  stations - a new environmental record for monitoring extremes. Scientific
+  Data 2, 150066. https://doi.org/10.1038/sdata.2015.66
+- LandTrendr (ee.Algorithms.TemporalSegmentation.LandTrendr, parameters from
+  github.com/eMapR/LT-GEE, Apache-2.0). Kennedy, R. E., Yang, Z., Cohen, W. B.
+  (2010). Detecting trends in forest disturbance and recovery using yearly
+  Landsat time series: 1. LandTrendr - Temporal segmentation algorithms.
+  Remote Sensing of Environment 114, 2897-2910. https://doi.org/10.1016/j.rse.2010.07.008
+- OpenStreetMap (nominatim.openstreetmap.org, accessed 2026): © OpenStreetMap
+  contributors, ODbL (https://www.openstreetmap.org/copyright). Used to locate
+  places listed in data/reference/lugares_osm.csv and as the base map of
+  docs/index.html. Street-end coordinates from OpenStreetMap also define two
+  rectangles in data/reference/desarrollos_poligonos.geojson (Bungalow, Las
+  Dunas). No other OpenStreetMap data is redistributed.
+- Parcel 1050c outline in data/reference/desarrollos_poligonos.geojson: traced from
+  the municipal zoning map (Plano_Zonificacion.pdf, Plan y Código de Ordenamiento
+  Urbano y Territorial, Ord. 3246/2023, montehermoso.gov.ar) and georeferenced
+  against the OpenStreetMap outline of Laguna Sauce Grande (ODbL). Approximate.
+- Monte Hermoso del Este sector boundaries (data/reference/desarrollos_poligonos.geojson):
+  taken from the public map linked from https://montehermosodeleste.com.ar
+  (Google My Maps mid=1R3oPGHZZi7LAdVFMrDoY-DIc5OnEQL8). No license is stated by the
+  publisher; they are used as a location reference only. Remove them if the
+  publisher objects.
 - Municipality boundary: IGN Argentina, via Georef (datos.gob.ar), CC BY 4.0.
   Servicio Georef - https://www.argentina.gob.ar/georef . The file in
   data/aoi/ is modified: the fields area_km2, source and source_date were added.

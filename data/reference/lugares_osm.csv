@@ -1,0 +1,8 @@
+name,lat,lon,source,status
+Las Lomas,-38.9764,-61.2936,OSM (Nominatim); confirmado por el autor del proyecto: barrio parque privado,confirmado
+Las Dunas,-38.9839,-61.3282,OSM (Nominatim); el autor del proyecto confirmó que es el punto A,confirmado
+Monte Hermoso del Este,-38.9848,-61.2753,OSM (Nominatim),a confirmar
+Aldea del Este,-38.9848,-61.2801,OSM (Nominatim),a confirmar
+Parque Esteban Dufaur,-38.9833,-61.3148,OSM (Nominatim),"a confirmar: el loteo Habitar está en el Barrio Dufaur, Camino Sinuoso Oeste"
+Camping Americano,-38.9871,-61.3506,OSM (Nominatim),referencia: Los Bosques queda detrás (al norte) del camping
+Monte Hermoso Golf Club,-38.9758,-61.2742,OSM (Nominatim),referencia: Pinar del Golf queda a la derecha (este) de Monte Hermoso del Este
