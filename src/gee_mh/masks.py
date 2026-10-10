@@ -1,5 +1,5 @@
 """Máscaras contextuales para excluir océano, agua, dunas/arena y superficie
-ya urbanizada del análisis de pérdida de copa (paso 4 del plan).
+ya urbanizada del análisis de pérdida de copa.
 
 Dynamic World es la fuente preferida (ya viene en SatelliteImage.classes desde
 2015-06-27 en adelante). Antes de esa fecha no hay Dynamic World, así que se

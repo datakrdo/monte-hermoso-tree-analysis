@@ -1,5 +1,5 @@
 """Self-check: EE conectado, AOI cargado, una composición trae las bandas
-esperadas a la escala correcta (verificación 1 y 7 del plan). Sin frameworks.
+esperadas a la escala correcta. Sin frameworks.
 
 Uso: PYTHONPATH=src python3 tests/test_smoke.py
 """

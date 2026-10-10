@@ -1,0 +1,15 @@
+year_to,site,lat,lon,area_ha,baselines,verdict,cause,notes,radius_m
+2020,sitio 1,-38.96931,-61.35145,2.5,ndvi_diff,real,desmonte probable,Los Bosques; confirmado a ojo en Google Earth Pro,
+2020,este de Sauce Grande,-38.9949,-61.174,7.5,ndvi_diff (33 eventos) + cva (mancha de 4.5 ha),clima,estacional,incluye el sitio 2; el evento ndvi_diff 190 (-38.99455 -61.17626) figura como real en la muestra manual y queda por confirmar,
+2020,P1,-38.9903,-61.21755,0.3,veg_to_built,real,desarrollo inmobiliario,Sauce Grande,100.0
+2020,P2,-38.9883,-61.27551,0.2,cva+ndvi_diff+veg_to_built,real,desarrollo inmobiliario,centro de Monte Hermoso,46.0
+2020,P3,-38.96716,-61.35601,2.3,cva+ndvi_diff,real,desmonte probable,no es desarrollo inmobiliario; junto al sitio 1,46.0
+2020,P4,-38.95929,-61.34917,0.6,cva+ndvi_diff,clima,estacional,vuelve en los años siguientes,242.0
+2020,P5,-38.98157,-61.3548,0.2,ndvi_diff,real,pérdida de vegetación,,94.0
+2020,P6,-38.96339,-61.36036,0.1,cva,clima,estacional,sin pérdida,68.0
+2020,P7,-38.96955,-61.3659,0.1,cva,real,pérdida de vegetación,,40.0
+2020,P8,-38.97024,-61.34911,0.1,cva,real,pérdida de vegetación,,40.0
+2020,P9,-38.97611,-61.36561,0.1,cva,clima,estacional,vuelve en los años siguientes,40.0
+2020,P10,-38.98045,-61.334,0.8,cva+ndvi_diff,real,desmonte para un camino,no es desarrollo inmobiliario,42.0
+2020,P11,-38.96451,-61.33029,0.6,cva,falso positivo,,,162.0
+2020,P12,-38.96517,-61.32496,0.5,cva,clima,estacional,todo el sitio,222.0
