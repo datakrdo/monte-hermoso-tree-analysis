@@ -6,3 +6,6 @@ pandas
 opencv-python
 pyyaml
 rasterio
+scipy
+matplotlib
+pillow
