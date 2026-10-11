@@ -9,7 +9,6 @@ Uso:
 """
 
 import argparse
-import datetime
 
 import geopandas as gpd
 import pandas
@@ -22,7 +21,7 @@ from gee_mh.detection import (
 from gee_mh.export import mask_to_polygons
 from gee_mh.pipeline import load_aoi_geometry, load_area, load_regional_shifts
 from gee_mh.preprocessing import Preprocessor
-from gee_mh.timeseries import build_series_with_context
+from gee_mh.timeseries import build_series_with_context, last_summer_year
 from gee_mh.validation import size_class, stratified_sample
 
 BASELINES = {
@@ -137,7 +136,7 @@ def run(start_year: int, end_year: int, sample_per_stratum: int):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--start-year", type=int, default=2016)
-    parser.add_argument("--end-year", type=int, default=datetime.date.today().year)
+    parser.add_argument("--end-year", type=int, default=last_summer_year())
     parser.add_argument("--sample-per-stratum", type=int, default=5)
     args = parser.parse_args()
     run(args.start_year, args.end_year, args.sample_per_stratum)

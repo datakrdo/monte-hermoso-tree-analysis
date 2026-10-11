@@ -34,6 +34,7 @@ from gee_mh.config import PROJECT_ROOT, load_config
 from gee_mh.longterm import EXPORTS, ORDINANCE_YEAR, scenes_per_year
 from gee_mh.pipeline import load_area
 from gee_mh.preprocessing import CLOUD_SCORE_MIN, CLOUD_SCORE_PLUS, SOURCES, DataSource, LongLatBBox, Preprocessor, mask_landsat_clouds
+from gee_mh.timeseries import last_summer_year
 
 DOCS = PROJECT_ROOT / "docs"
 FRAME_WIDTH = 1200
@@ -394,7 +395,7 @@ def export_web_data(areas, zone, rates, events, years):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--start-year", type=int, default=1986)
-    parser.add_argument("--end-year", type=int, default=2026)
+    parser.add_argument("--end-year", type=int, default=last_summer_year())
     parser.add_argument("--zona-preview", action="store_true", help="solo la vista previa de la zona de estudio (aoi/zona_urbana_preview.png)")
     args = parser.parse_args()
     if args.zona_preview:

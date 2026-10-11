@@ -21,6 +21,17 @@ SEASONAL_MONTH_DAY = (2, 15)
 MAX_WORKERS = 4
 
 
+def last_summer_year(today: Optional[datetime.date] = None) -> int:
+    """
+    Último año cuyo verano ya se puede componer: la ventana de Landsat llega a
+    mediados de abril y sus escenas tardan semanas en publicarse, y el caché se
+    indexa por año, así que un compuesto incompleto quedaría guardado para
+    siempre. Desde el 1 de mayo es el año actual; antes, el anterior.
+    """
+    today = today or datetime.date.today()
+    return today.year if today.month >= 5 else today.year - 1
+
+
 def year_to_date(year: int) -> str:
     month, day = SEASONAL_MONTH_DAY
     return f"{year}-{month:02d}-{day:02d}"
@@ -34,12 +45,12 @@ def build_annual_series(
 ) -> Dict[int, SatelliteImage]:
     """
     Construye una composición estacional por año en [start_year, end_year].
-    end_year=None usa el año actual.
+    end_year=None usa el último verano completo (last_summer_year).
     Return un dict {year: SatelliteImage}. Los años sin imagen disponible se
     omiten (no se agrega una imagen dummy) para no contaminar la serie con
     datos falsos - quedan registrados como huecos por el llamador.
     """
-    end_year = end_year or datetime.date.today().year
+    end_year = end_year or last_summer_year()
     processor.data_source = DataSource.AUTO
 
     years = range(start_year, end_year + 1)
@@ -71,8 +82,17 @@ def build_series_with_context(
     (ver detection.detect_pair). Quien itera pares debe quedarse con los de
     [start_year, end_year].
     """
-    return build_annual_series(processor, area, start_year - 1, min(end_year + 1, datetime.date.today().year))
+    return build_annual_series(processor, area, start_year - 1, min(end_year + 1, last_summer_year()))
 
 
 def missing_years(series: Dict[int, SatelliteImage], start_year: int, end_year: int) -> List[int]:
     return [y for y in range(start_year, end_year + 1) if y not in series]
+
+
+if __name__ == "__main__":
+    day = datetime.date
+    assert last_summer_year(day(2027, 4, 30)) == 2026
+    assert last_summer_year(day(2027, 5, 1)) == 2027
+    assert last_summer_year(day(2027, 6, 1)) == 2027
+    assert last_summer_year(day(2027, 1, 1)) == 2026
+    print("timeseries selftest OK")
