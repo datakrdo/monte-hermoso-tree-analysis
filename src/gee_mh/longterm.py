@@ -19,7 +19,6 @@ Uso:
 """
 
 import argparse
-import datetime
 
 import cv2
 import ee
@@ -35,7 +34,7 @@ from gee_mh.external_validation import MAPBIOMAS_ASSET, URBAN_CODE, mapbiomas_ye
 from gee_mh.masks import aoi_mask
 from gee_mh.pipeline import load_aoi_geometry, load_area, load_partido_area, load_partido_geometry
 from gee_mh.preprocessing import DYNAMIC_WORLD_CLASSES, SOURCES, DataSource, Preprocessor, mask_landsat_clouds
-from gee_mh.timeseries import build_annual_series
+from gee_mh.timeseries import build_annual_series, last_summer_year
 
 RESOLUTION_M = 30.0
 WINDOW_DAYS = 60
@@ -374,7 +373,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--selftest", action="store_true")
     parser.add_argument("--start-year", type=int, default=1985)
-    parser.add_argument("--end-year", type=int, default=datetime.date.today().year)
+    parser.add_argument("--end-year", type=int, default=last_summer_year())
     args = parser.parse_args()
     if args.selftest:
         selftest()

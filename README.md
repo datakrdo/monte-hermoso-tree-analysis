@@ -438,6 +438,18 @@ python3 -m gee_mh.developments                                  # events near th
 python3 -m gee_mh.animation                                      # docs/monte_hermoso.gif and web map data
 ```
 
+### Annual update
+
+`.github/workflows/annual-update.yml` runs on June 1 (or by hand from the
+Actions tab), once the summer composites are complete: the default end year is
+the current year only from May 1 (`timeseries.last_summer_year`). It reuses the
+composites cached in the `pipeline-cache` release, so only the new summer is
+downloaded, and opens a pull request `update-<year>` with `docs/` regenerated.
+Nothing is published until you merge it. Needs the `EE_SERVICE_ACCOUNT_KEY`
+secret (Earth Engine service account) and "Allow GitHub Actions to create pull
+requests" enabled. The tables in this README are written by hand and must be
+updated after merging.
+
 Offline self-checks (no Earth Engine needed):
 `python3 -m gee_mh.preprocessing`, `gee_mh.detection`, `gee_mh.export`,
 `gee_mh.validation`, `gee_mh.attribution`, `gee_mh.aoi --selftest`,

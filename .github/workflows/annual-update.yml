@@ -1,0 +1,83 @@
+name: Actualización anual
+
+# 1 de junio: el verano (ventana de Landsat hasta mediados de abril) ya está
+# publicado. Deja un PR con docs/ regenerado; nada se publica hasta el merge.
+on:
+  schedule:
+    - cron: "0 6 1 6 *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+env:
+  PYTHONPATH: src
+  CACHE_TAG: pipeline-cache
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.EE_SERVICE_ACCOUNT_KEY }}
+
+      # La caché (~760 MB) vive en un release fijo: actions/cache borra lo que
+      # no se usa en 7 días y esto corre una vez al año.
+      - name: Restaurar caché
+        run: |
+          if gh release download "$CACHE_TAG" --pattern cache.tar.zst --dir "$RUNNER_TEMP"; then
+            tar -I zstd -xf "$RUNNER_TEMP/cache.tar.zst" -C .
+          else
+            echo "No hay caché previa: se baja todo de nuevo."
+          fi
+
+      - name: Último verano completo
+        run: echo "YEAR=$(python3 -c 'from gee_mh.timeseries import last_summer_year; print(last_summer_year())')" >> "$GITHUB_ENV"
+
+      - name: Pipeline
+        run: |
+          python3 -m gee_mh.compare_baselines --start-year 2016 --end-year "$YEAR"
+          python3 -m gee_mh.external_validation --full --start-year 2016 --end-year "$((YEAR - 1))"
+          python3 -m gee_mh.longterm --start-year 1985 --end-year "$YEAR"
+          python3 -m gee_mh.developments
+          python3 -m gee_mh.animation --end-year "$YEAR"
+
+      - name: Guardar caché
+        if: always()
+        run: |
+          [ -d data/cache ] || exit 0
+          tar -I zstd -cf "$RUNNER_TEMP/cache.tar.zst" data/cache
+          gh release view "$CACHE_TAG" >/dev/null 2>&1 || gh release create "$CACHE_TAG" --title "Caché del pipeline" --notes "Compuestos descargados de Earth Engine; la corrida anual los reutiliza."
+          gh release upload "$CACHE_TAG" "$RUNNER_TEMP/cache.tar.zst#cache.tar.zst" --clobber
+
+      # Tablas para revisar (data/exports está en .gitignore)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: exports-${{ env.YEAR }}
+          path: data/exports/*.csv
+          retention-days: 90
+
+      - uses: peter-evans/create-pull-request@v7
+        with:
+          add-paths: docs
+          branch: update-${{ env.YEAR }}
+          commit-message: Actualización del verano ${{ env.YEAR }}
+          title: Actualización del verano ${{ env.YEAR }}
+          body: |
+            Datos y mapa regenerados hasta ${{ env.YEAR }}. Los años recientes pueden cambiar (confirmación por persistencia y reajuste de LandTrendr).
+            Tablas para revisar en el artifact `exports-${{ env.YEAR }}` de la corrida. Faltan por actualizar a mano los números del README.
