@@ -12,7 +12,7 @@ import threading
 import time
 from pathlib import Path
 
-from gee_mh.config import PROJECT_ROOT
+from gee_mh.config import PROJECT_ROOT, init_earth_engine
 
 # Dynamic World classes, in the order of the class values of its 'label' band
 DYNAMIC_WORLD_CLASSES = [
@@ -185,7 +185,7 @@ class Preprocessor:
 
         # Uses the credentials of whoever ran `earthengine authenticate`.
         if online:
-            ee.Initialize(project=ee_project)
+            init_earth_engine(ee_project)
             # Sin esto, una llamada de la API que se cuelga a nivel TCP nunca
             # falla, y por lo tanto nunca dispara el reintento de
             # download_numpy_data. 120s porque un computePixels del AOI
