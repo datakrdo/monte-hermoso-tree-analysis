@@ -42,6 +42,7 @@ CUT_LON = -61.25  # meridiano que separa los dos paneles (el tramo entre ambas l
 MAP_WIDTH = 600  # ancho en píxeles de cada panel del GIF
 PANEL_NAMES = {"mh": "Monte Hermoso y alrededores", "sg": "Balneario Sauce Grande"}
 S2_WINDOW_DAYS = 30
+PAN_FIRST_YEAR = 2000  # Landsat 7 es el primero con banda pancromática (15 m); Landsat 5 no tiene
 LANDSAT_WINDOW_DAYS, WIDE_WINDOW_DAYS, WIDE_MAX_CLOUD = 30, 75, 60.0  # ventana normal y ancha de los cuadros Landsat
 # Colores de la paleta de referencia del skill dataviz (superficie clara)
 INK, INK_SECONDARY, SURFACE = "#0b0b0b", "#52514e", "#fcfcfb"
@@ -49,6 +50,18 @@ KIND_COLORS = {"loss": "#e34948", "gain": "#1baf7a"}
 KIND_LABELS = {"loss": "Pérdida de árboles", "gain": "Ganancia de árboles"}
 BUILT_COLOR = "#eb6834"  # vegetación → construido (eventos Sentinel-2 del mapa web)
 LINE_COLOR = "#2a78d6"
+# Esri Wayback: versiones (fecha de publicación: número) que renuevan el mosaico sobre la zona: cambian al menos 15 de 128
+# tiles z17 repartidos por Monte Hermoso y Sauce Grande (las demás, 177 de 197, traen 1 a 14 tiles sueltos). Cada versión solo
+# publica los tiles que cambiaron, así que el mapa web busca tile por tile la versión elegida o las anteriores (las 197 están
+# en data/reference/wayback_releases.json, de waybackconfig.json): con solo estas 13 quedarían huecos.
+WAYBACK_RELEASES = {
+    "2014-02-20": 10, "2016-11-16": 21750, "2018-02-23": 13067, "2019-05-15": 9598,
+    "2020-05-20": 32645, "2021-02-24": 9812, "2021-05-19": 15423, "2021-10-13": 16749,
+    "2022-10-12": 44988, "2023-10-11": 1034, "2024-09-19": 20337, "2025-12-18": 13192,
+    "2026-05-28": 10842,
+}
+# SPOT 5 (CNES, ver spot.py): fechas de las escenas descargadas, para el selector del mapa web
+SPOT_SCENES = ["2003-11-01", "2006-12-29"]
 
 
 def frame_size(area, width: int = FRAME_WIDTH) -> tuple:
@@ -90,7 +103,20 @@ def natural_color(area, year: int, wide: bool) -> ee.Image:
     image = landsat(year, LANDSAT_WINDOW_DAYS, 35.0).unmask(landsat(year, WIDE_WINDOW_DAYS, WIDE_MAX_CLOUD))
     for neighbor in (year - 1, year + 1, year - 2, year + 2):
         image = image.unmask(landsat(neighbor, WIDE_WINDOW_DAYS, WIDE_MAX_CLOUD))
-    return image
+    return image.multiply(pan_detail(area, year)) if year >= PAN_FIRST_YEAR else image
+
+
+def pan_detail(area, year: int) -> ee.Image:
+    """
+    Cociente pancromática (15 m) / su media a 30 m: multiplicado por el color de 30 m le pone textura de 15 m
+    y conserva los colores. Donde no hay pancromática (nubes, huecos de Landsat 7) vale 1 y queda a 30 m.
+    ponytail: método de cociente (Brovey); si los colores se corren, pasar a HSV o Gram-Schmidt.
+    """
+    middle = ee.Date(f"{year}-02-15")
+    pan = ee.ImageCollection("LANDSAT/LE07/C02/T1_TOA").merge(ee.ImageCollection("LANDSAT/LC08/C02/T1_TOA")) \
+        .filterBounds(area.to_ee_box()).filterDate(middle.advance(-WIDE_WINDOW_DAYS, "day"), middle.advance(WIDE_WINDOW_DAYS, "day")) \
+        .filter(ee.Filter.lt("CLOUD_COVER", WIDE_MAX_CLOUD)).map(mask_landsat_clouds).select("B8").median()
+    return pan.divide(pan.focalMean(30, "square", "meters")).unmask(1).clamp(0.5, 2)
 
 
 def download_frame(area, year: int, wide: bool, path, width: int = FRAME_WIDTH) -> None:
@@ -103,7 +129,9 @@ def download_frame(area, year: int, wide: bool, path, width: int = FRAME_WIDTH) 
 
 
 def frame_sensor(year: int) -> str:
-    return "Sentinel-2, 10 m" if year >= SENTINEL_FIRST_YEAR else "Landsat, 30 m"
+    if year >= SENTINEL_FIRST_YEAR:
+        return "Sentinel-2, 10 m"
+    return "Landsat, 15 m (pancromática)" if year >= PAN_FIRST_YEAR else "Landsat, 30 m"
 
 
 def cumulative_overlays(events: geopandas.GeoDataFrame, area, years, size) -> dict:
@@ -296,11 +324,14 @@ def run(years):
     scenes = scenes_per_year(zone_area, [y for y in years if y < SENTINEL_FIRST_YEAR])
     wide = {y: scenes.get(y, 1) == 0 for y in years}
 
+    def sharp(year):
+        return PAN_FIRST_YEAR <= year < SENTINEL_FIRST_YEAR
+
     def fetch(job):
         key, year = job
-        path = cache_dir / key / f"{year}{'w' if wide[year] else ''}.jpg"
+        path = cache_dir / key / f"{year}{'w' if wide[year] else ''}{'p' if sharp(year) else ''}.jpg"
         if not path.exists():
-            download_frame(areas[key], year, wide[year], path, width=round(meters_size(areas[key])[0] / 10))  # 10 m por píxel
+            download_frame(areas[key], year, wide[year], path, width=round(meters_size(areas[key])[0] / (7.5 if sharp(year) else 10)))  # 10 m por píxel (7,5 con pancromática)
         return job, path
 
     jobs = [(key, year) for key in areas for year in years]
@@ -318,7 +349,8 @@ def run(years):
         for key in areas:
             image = Image.open(paths[(key, year)]).convert("RGB")
             bases[key] = numpy.asarray(image)
-            web = image.resize((round(meters_size(areas[key])[0] / 12), round(meters_size(areas[key])[1] / 12)), Image.LANCZOS)  # 12 m por píxel
+            step = 8 if sharp(year) else 12  # metros por píxel de la imagen web
+            web = image.resize((round(meters_size(areas[key])[0] / step), round(meters_size(areas[key])[1] / step)), Image.LANCZOS)
             (frames_dir / key).mkdir(parents=True, exist_ok=True)
             web.save(frames_dir / key / f"{year}.jpg", quality=80, optimize=True)
         gif_frames.append(render_frame(bases, {key: overlays[key][year] for key in areas}, rates, year, areas, zone))
@@ -351,6 +383,9 @@ def export_web_data(areas, zone, rates, events, years):
         "panels": {key: {"name": PANEL_NAMES[key], "bounds": [[a.lat_from, a.long_from], [a.lat_to, a.long_to]]} for key, a in areas.items()},
         "ordinance_year": ORDINANCE_YEAR,
         "frames": [{"year": y, "sensor": frame_sensor(y)} for y in years],
+        "spot": [{"id": f"{d}_nat", "label": f"SPOT 5 {d}, color simulado 5 m"} for d in SPOT_SCENES],
+        "wayback_chain": json.loads((PROJECT_ROOT / "data" / "reference" / "wayback_releases.json").read_text()),
+        "wayback": [{"date": d, "release": r} for d, r in WAYBACK_RELEASES.items()],
         "tree_ha": {int(r.year_to): round(float(r.tree_ha), 1) for r in rates.itertuples()},
     }
     (data_dir / "meta.json").write_text(json.dumps(meta, ensure_ascii=False))

@@ -22,14 +22,22 @@ what tells which ones are.
 
 ![Monte Hermoso and Sauce Grande, 1986-2026](docs/monte_hermoso.gif)
 
-One frame per summer (Sentinel-2 at 10 m from 2017, Landsat at 30 m before, with
+One frame per summer (Sentinel-2 at 10 m from 2017, Landsat sharpened to 15 m
+with its panchromatic band for 2000-2016, plain 30 m Landsat before, with
 cloud gaps filled from neighboring years, which is why early frames can mix
 seasons), in two panels at the same scale, with persistent tree loss in red and
 tree gain in green, accumulated since 1986, and the tree-like cover of the study
 zone below. An interactive map with a year slider is in `docs/index.html`: serve
 it with `python3 -m http.server -d docs`, or enable GitHub Pages on `main`
 `/docs`; it can also overlay the confirmed 10 m Sentinel-2 events, with
-vegetation that turned built-up in orange.
+vegetation that turned built-up in orange. The map opens on Monte Hermoso and has
+a swipe curtain to compare two dates side by side (a year's composite or an Esri
+Wayback release from 2014 on, or a SPOT 5 scene from 2003-11-01 or 2006-12-29 pan-sharpened
+to 5 m; with the curtain it shows only the changes between both years). The
+sharper images are for display only: detection still uses Landsat and
+Sentinel-2. SPOT 5 (CNES SPOT World Heritage, level 1A, downloaded by hand from
+GEODES) has no blue band, so the color is simulated (blue is approximated with green); `python3 -m gee_mh.spot` georeferences it from its four corner
+points and removes the remaining offset against Sentinel-2.
 
 ## Main findings 🔎
 

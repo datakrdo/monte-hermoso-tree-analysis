@@ -23,7 +23,13 @@
   header { padding: 10px 14px 6px; }
   h1 { font-size: 18px; margin: 0 0 2px; }
   header p { margin: 0; color: var(--text-secondary); font-size: 12px; }
-  #map { flex: 1; min-height: 300px; }
+  #mapwrap { position: relative; flex: 1; min-height: 300px; display: flex; }
+  #map { flex: 1; }
+  #divider { position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1px; background: #fff; box-shadow: 0 0 4px #0008; z-index: 1000; pointer-events: none; }
+  #swipe { position: absolute; left: 0; right: 0; bottom: 18px; width: 100%; margin: 0; z-index: 1001; }
+  .tag { position: absolute; top: 8px; z-index: 1000; background: #000a; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 12px; pointer-events: none; }
+  #tag-l { left: 8px; } #tag-r { right: 8px; }
+  select { font: inherit; max-width: 16em; }
   .controls { padding: 8px 14px; display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; border-top: 1px solid var(--grid); }
   .controls label { display: inline-flex; gap: 6px; align-items: center; color: var(--text-secondary); }
   #year-label { font-weight: 700; min-width: 3.2em; }
@@ -41,13 +47,21 @@
   <h1>Monte Hermoso y Balneario Sauce Grande: cómo cambió el verde, 1986-2026</h1>
   <p>Compuestos de verano. Cada cambio es un <strong>candidato</strong> detectado en la señal satelital, todavía no verificado en terreno. La pérdida de árboles (30 m) solo cuenta cambios que siguen presentes tres años después.</p>
 </header>
-<div id="map"></div>
+<div id="mapwrap">
+  <div id="map"></div>
+  <div id="divider"></div><span class="tag" id="tag-l"></span><span class="tag" id="tag-r"></span>
+  <input id="swipe" type="range" min="0" max="100" value="50" aria-label="Cortina de comparación">
+</div>
 <div class="controls">
   <button id="play" aria-label="Reproducir">▶ Reproducir</button>
   <span id="zoom-buttons" style="display:inline-flex;gap:6px"></span>
   <label id="year-wrap">Año <span id="year-label">2026</span></label>
   <input id="year" type="range" min="1986" max="2026" value="2026" aria-label="Año">
   <span id="sensor" style="color:var(--text-secondary)"></span>
+</div>
+<div class="controls">
+  <label>Izquierda <select id="left-src" aria-label="Imagen de la izquierda"></select></label>
+  <label>Derecha <select id="right-src" aria-label="Imagen de la derecha"></select></label>
 </div>
 <div class="controls">
   <label><input type="checkbox" id="l-loss" checked><span class="swatch" style="background:var(--loss)"></span>Pérdida de árboles (30 m)</label>
@@ -58,7 +72,7 @@
 </div>
 <div style="padding:0 14px; position:relative"><svg id="chart" role="img" aria-label="Cobertura arbórea del partido por año"></svg><div id="tooltip"></div></div>
 <footer>
-  Contains modified Copernicus Sentinel data · Courtesy U.S. Geological Survey (Landsat) · Cloud Score+ y Dynamic World (Google, CC BY 4.0) ·
+  Contains modified Copernicus Sentinel data · Courtesy U.S. Geological Survey (Landsat) · Esri Wayback: Esri, Maxar, Earthstar Geographics · Cloud Score+ y Dynamic World (Google, CC BY 4.0) ·
   Base: © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · Código y método:
   README del repositorio. Los cambios entre períodos no prueban su causa.
 </footer>
@@ -78,7 +92,9 @@
 
   const panels = meta.panels;
   const allBounds = L.latLngBounds(Object.values(panels).flatMap((p) => p.bounds));
-  const map = L.map("map", { zoomSnap: 0.25 }).fitBounds(allBounds);
+  const map = L.map("map", { zoomSnap: 0.25 }).fitBounds(panels.mh.bounds);
+  map.createPane("left").style.zIndex = 250;
+  map.createPane("right").style.zIndex = 260;
   const zoomButtons = document.getElementById("zoom-buttons");
   const addZoom = (label, bounds) => {
     const b = document.createElement("button");
@@ -87,7 +103,67 @@
   Object.values(panels).forEach((p) => addZoom(p.name.split(" y ")[0], p.bounds));
   addZoom("Toda la zona", allBounds);
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map);
-  const overlays = Object.fromEntries(Object.entries(panels).map(([key, p]) => [key, L.imageOverlay(`frames/${key}/${slider.value}.jpg`, p.bounds).addTo(map)]));
+  const leftSel = document.getElementById("left-src"), rightSel = document.getElementById("right-src"), swipe = document.getElementById("swipe");
+  const entries = [  // todas las fuentes en una sola lista ordenada por fecha (los compuestos anuales, a mitad del verano)
+    ...years.map((y) => [`${y}-02-15`, `y${y}`, `${y} · compuesto de verano · ${frames[y].sensor}`]),
+    ...(meta.spot || []).map((x) => [x.id.slice(0, 10), `s${x.id}`, `${x.id.slice(0, 10)} · SPOT 5, 5 m (color simulado)`]),
+    ...(meta.wayback || []).map((w) => [w.date, `w${w.release}`, `${w.date} · Esri Wayback`]),
+  ].sort((a, b) => a[0].localeCompare(b[0]));
+  const options = (first) => first + entries.map(([, value, text]) => `<option value="${value}">${text}</option>`).join("");
+  leftSel.innerHTML = options('<option value="none">Sin comparación</option>');
+  rightSel.innerHTML = options('<option value="slider">Compuesto del año del control</option>');
+  leftSel.value = "y" + years[0]; rightSel.value = "slider";
+  const wayback = (release) => meta.wayback.find((w) => w.release == release);
+  const sourceYear = (src) => +(src[0] === "w" ? wayback(src.slice(1)).date.slice(0, 4) : src.slice(1, 5));
+  const describe = (src) => src === "none" ? "" : src[0] === "y" ? `${src.slice(1)} · ${frames[src.slice(1)].sensor}` :
+    src[0] === "s" ? meta.spot.find((x) => x.id === src.slice(1)).label :
+    `Esri Wayback ${wayback(src.slice(1)).date}`;
+  // Cada versión de Wayback solo publica los tiles que cambiaron: para una fecha se prueba, tile por tile, la versión elegida
+  // y después las anteriores, y se muestra la primera que lo tiene (así no quedan huecos).
+  wayback.sorted = meta.wayback_chain || [];  // las 197 versiones por fecha, no solo las del selector
+  const WaybackLayer = L.TileLayer.extend({
+    createTile(coords, done) {
+      const img = document.createElement("img"), releases = wayback.sorted;
+      let i = this.options.index;
+      const next = () => {
+        if (i < 0) { img.onerror = null; return done(null, img); }
+        img.src = `https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/WMTS/1.0.0/default028mm/MapServer/tile/${releases[i--].release}/${coords.z}/${coords.y}/${coords.x}`;
+      };
+      img.onload = () => done(null, img);
+      img.onerror = next;
+      next();
+      return img;
+    },
+  });
+  const makeLayers = (src, pane) => {
+    const id = src.slice(1), opt = { pane };
+    if (src[0] === "y") return Object.entries(panels).map(([key, p]) => L.imageOverlay(`frames/${key}/${id}.jpg`, p.bounds, opt));
+    if (src[0] === "s") return Object.entries(panels).map(([key, p]) => L.imageOverlay(`frames/spot/${id.slice(0, 10)}_${id.slice(11)}_${key}.jpg`, p.bounds, opt));
+    return [new WaybackLayer("", { ...opt, maxNativeZoom: 17, maxZoom: 19, attribution: "Esri, Maxar, Earthstar Geographics",
+      index: wayback.sorted.findIndex((w) => w.release == id) })];
+  };
+  const sides = { left: { src: "none", layers: [] }, right: { src: "none", layers: [] } };
+  function setSide(name, src) {  // entre compuestos anuales solo se cambia la URL: sin parpadeo al reproducir
+    const side = sides[name];
+    if (side.src === src) return;
+    if (side.src[0] === "y" && src[0] === "y") Object.keys(panels).forEach((key, i) => side.layers[i].setUrl(`frames/${key}/${src.slice(1)}.jpg`));
+    else {
+      side.layers.forEach((l) => l.remove());
+      side.layers = src === "none" ? [] : makeLayers(src, name);
+      side.layers.forEach((l) => l.addTo(map));
+    }
+    side.src = src;
+  }
+  function clip() {  // cortina: cada panel se recorta con CSS a un lado de la línea
+    const size = map.getSize(), tl = map.containerPointToLayerPoint([0, 0]), br = map.containerPointToLayerPoint(size);
+    const x = map.containerPointToLayerPoint([(size.x * swipe.value) / 100, 0]).x, compare = sides.left.src !== "none";
+    map.getPane("left").style.clip = `rect(${tl.y}px,${x}px,${br.y}px,${tl.x}px)`;
+    map.getPane("right").style.clip = compare ? `rect(${tl.y}px,${br.x}px,${br.y}px,${x}px)` : "auto";
+    document.getElementById("divider").style.left = `${swipe.value}%`;
+    document.getElementById("divider").style.display = swipe.style.display = compare ? "block" : "none";
+  }
+  swipe.addEventListener("input", clip);
+  map.on("move zoom viewreset resize", clip);
   L.geoJSON(zona, { style: { color: "#ffffff", weight: 1.5, fill: false, dashArray: "4 4" }, interactive: false }).addTo(map);
   const eventLayer = L.layerGroup().addTo(map);
   const sentinelLayer = L.layerGroup();
@@ -96,13 +172,17 @@
   function draw() {
     const year = +slider.value;
     document.getElementById("year-label").textContent = year;
-    const frame = frames[year];
-    document.getElementById("sensor").textContent = frame.sensor + (year < 2017 ? " · nubes y huecos rellenados con años vecinos" : "");
-    Object.entries(overlays).forEach(([key, overlay]) => {
-      overlay.setUrl(`frames/${key}/${year}.jpg`);
-      overlay.setOpacity(document.getElementById("opacity").value / 100);
-    });
-    const visible = (f) => (on("cumulative") ? f.properties.year_to <= year : f.properties.year_to === year);
+    const rightSrc = rightSel.value === "slider" ? `y${year}` : rightSel.value, leftSrc = leftSel.value;
+    setSide("right", rightSrc); setSide("left", leftSrc);
+    [...sides.left.layers, ...sides.right.layers].forEach((l) => l.setOpacity(document.getElementById("opacity").value / 100));
+    document.getElementById("sensor").textContent = rightSrc[0] === "y" && year < 2017 ? "nubes y huecos rellenados con años vecinos" : "";
+    document.getElementById("tag-l").textContent = describe(leftSrc); document.getElementById("tag-l").hidden = leftSrc === "none";
+    document.getElementById("tag-r").textContent = describe(rightSrc);
+    clip();
+    // con cortina, solo los cambios entre las dos fechas; sin ella, los acumulados (o los de un año)
+    const from = leftSrc === "none" ? null : sourceYear(leftSrc), to = sourceYear(rightSrc);
+    const visible = (f) => from !== null && from < to ? f.properties.year_to > from && f.properties.year_to <= to :
+      on("cumulative") ? f.properties.year_to <= to : f.properties.year_to === to;
     eventLayer.clearLayers();
     const enabled = { loss: on("l-loss"), gain: on("l-gain") };
     const features = longterm.features.filter((f) => enabled[f.properties.kind] && visible(f));
@@ -157,7 +237,7 @@
     });
   }
 
-  document.querySelectorAll(".controls input").forEach((el) => el.addEventListener("input", draw));
+  document.querySelectorAll(".controls input, .controls select").forEach((el) => el.addEventListener("input", draw));
   let timer = null;
   document.getElementById("play").addEventListener("click", (e) => {
     if (timer) { clearInterval(timer); timer = null; e.target.textContent = "▶ Reproducir"; return; }

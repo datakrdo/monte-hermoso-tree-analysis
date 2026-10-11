@@ -22,7 +22,8 @@ etiquetada es lo que dice cuáles lo son.
 
 ![Monte Hermoso y Sauce Grande, 1986-2026](docs/monte_hermoso.gif)
 
-Un cuadro por verano (Sentinel-2 a 10 m desde 2017, Landsat a 30 m antes, con
+Un cuadro por verano (Sentinel-2 a 10 m desde 2017, Landsat afinado a 15 m con su
+banda pancromática entre 2000 y 2016, Landsat de 30 m antes, con
 los huecos de nubes rellenados con años vecinos, por eso los primeros cuadros
 pueden mezclar épocas), en dos paneles a la misma escala, con la pérdida
 persistente de árboles en rojo y la ganancia en verde, acumuladas desde 1986, y
@@ -30,7 +31,14 @@ debajo la cobertura arbórea de la zona de estudio. Hay un mapa interactivo con
 control de años en `docs/index.html`: se sirve con
 `python3 -m http.server -d docs`, o activando GitHub Pages en `main` `/docs`;
 también superpone los eventos Sentinel-2 de 10 m confirmados, con la vegetación
-que pasó a construido en naranja.
+que pasó a construido en naranja. El mapa abre en Monte Hermoso y tiene una
+cortina para comparar dos fechas lado a lado (el compuesto de un año o una
+versión de Esri Wayback desde 2014, o una escena SPOT 5 del 2003-11-01 o del
+2006-12-29 fusionada a 5 m; con la cortina muestra solo los cambios entre ambos
+años). Las imágenes más nítidas son solo para mirar: la detección sigue usando
+Landsat y Sentinel-2. SPOT 5 (SPOT World Heritage de CNES, nivel 1A, bajado a mano
+de GEODES) no tiene banda azul, así que el color es simulado (el azul se aproxima con el verde); `python3 -m gee_mh.spot` la georreferencia con sus cuatro puntos de
+las esquinas y quita el desfase que queda contra Sentinel-2.
 
 ## Hallazgos principales 🔎
 
