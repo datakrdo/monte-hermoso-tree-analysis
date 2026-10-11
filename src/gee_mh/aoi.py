@@ -24,7 +24,7 @@ from shapely.geometry import Polygon, box, shape
 from shapely import segmentize
 from shapely.ops import unary_union
 
-from gee_mh.config import PROJECT_ROOT, load_config
+from gee_mh.config import PROJECT_ROOT, init_earth_engine, load_config
 
 DEPARTAMENTOS_URL = "https://infra.datos.gob.ar/georef/departamentos.geojson"
 MONTE_HERMOSO_ID = "06553"
@@ -104,7 +104,7 @@ def build_urban_zone(margin_m: float = 1000, out_path=None) -> gpd.GeoDataFrame:
     import ee
 
     out_path = out_path or ZONE_PATH
-    ee.Initialize(project=load_config()["ee_project"])
+    init_earth_engine(load_config()["ee_project"])
     partido = gpd.read_file(PROJECT_ROOT / load_config()["aoi"]["partido_path"]).geometry.iloc[0]
     named = gpd.read_file(PARCELS_PATH).set_index("name").geometry
     parcels = [(named[LOS_BOSQUES[0]], LOS_BOSQUES[1])]

@@ -105,9 +105,9 @@ def spring_features(events) -> pandas.DataFrame:
     lo estacional vuelve. Necesita Earth Engine."""
     import ee
 
-    from gee_mh.config import load_config
+    from gee_mh.config import init_earth_engine, load_config
 
-    ee.Initialize(project=load_config()["ee_project"])
+    init_earth_engine(load_config()["ee_project"])
     cs = ee.ImageCollection("GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED")
 
     def spring(year):
