@@ -373,6 +373,11 @@ def export_web_data(areas, zone, rates, events, years):
     def save(frame, name):
         frame = frame.copy()
         frame["geometry"] = frame.geometry.simplify(0.00002).set_precision(1e-5)
+        # Redondeo y orden fijos: sin ellos el ruido de punto flotante entre
+        # máquinas llena de diffs falsos el PR de la actualización anual.
+        frame["area_m2"] = frame["area_m2"].round(2)
+        keys = [c for c in frame.columns if c not in ("geometry", "area_m2")]
+        frame = frame.assign(_wkt=frame.geometry.to_wkt()).sort_values([*keys, "_wkt"]).drop(columns="_wkt").reset_index(drop=True)
         frame.to_file(data_dir / name, driver="GeoJSON")
 
     save(events[["kind", "year_to", "area_m2", "geometry"]], "longterm_events.geojson")
