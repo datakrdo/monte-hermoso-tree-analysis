@@ -39,100 +39,6 @@ Sentinel-2. SPOT 5 (CNES SPOT World Heritage, level 1A, downloaded by hand from
 GEODES) has no blue band, so the color is simulated (blue is approximated with green); `python3 -m gee_mh.spot` georeferences it from its four corner
 points and removes the remaining offset against Sentinel-2.
 
-## Tools 🛠️
-
-- Python, NumPy, pandas
-- Google Earth Engine Python API
-- GeoPandas, Shapely, rasterio
-- OpenCV (connected components, resampling, smoothing)
-- PyYAML
-
-## Skills 🧠
-
-- Remote-sensing time series: cloud-masked seasonal composites from
-  Sentinel-2 and Landsat
-- Change detection and false-positive analysis: finding out what a detector
-  actually flags
-- Quota-aware data engineering on Earth Engine: single-request downloads,
-  disk cache, retries, checkpoints
-- Validation design: stratified sampling, Wilson intervals, independent
-  cross-checks
-- Reproducible research code: offline self-checks, honest reporting of
-  negative results
-- Open-data licensing and attribution
-
-## Design decisions 🧭
-
-- **One download per year**, not per tile: exact grid via `computePixels`
-  (raw bands as `uint16`, one `uint8` land-cover label, one `uint8` tree
-  probability). A full run used to take about 30 minutes and crashed on a
-  tile-shape mismatch; now the 10 images for 2015-2024 download in about 2.5
-  minutes in total (measured), and a re-run is served from the disk cache with
-  no Earth Engine requests for imagery.
-- LandTrendr over the whole municipality in one request did not finish in
-  minutes; the same job in row chunks of 100,000 pixels takes about a minute
-  per chunk and is cached on disk afterwards.
-- Retry with backoff, request timeouts, and a checkpoint after every processed
-  year so a failure never loses finished work.
-- Years run in parallel (4 workers, conservative for non-commercial quota).
-- Pairs of years with different sensor resolution (30 m vs. 10 m) are skipped,
-  because NDVI is not comparable across them.
-
-## How it works 🏗️
-
-```
-Earth Engine: Sentinel-2 / Landsat / Dynamic World / Cloud Score+
-   |  1 request per year: cloud-masked summer composite (median, +-30 days of Feb 15)
-   v
-disk cache (data/cache)  -->  SatelliteImage: reflectance, NDVI/NDBI/NDMI,
-   |                          Dynamic World label and tree probability
-   v
-detection (4 baselines: ndvi_diff | dynamic_world | cva | veg_to_built), each refined by
-   - regional NDVI shift of the pair removed (droughts)
-   - stable woody mask (woody in year t-1 and t)
-   - persistence check (the decline must still hold in year t+1)
-   - clip to the municipality polygon, minimum event area
-   v
-events (exact polygons, cause per polygon)  -->  stratified sample + review_url  -->  precision by stratum
-   +-- MapBiomas Argentina C3 cross-check
-
-Landsat 5/7/8/9 summer composites 1985-2026 --> LandTrendr fit per pixel
-   --> persistent tree loss/gain, rainfall (CHIRPS), MapBiomas urban area
-   --> yearly rates, before/after Ordinance 1913, animation and web map
-```
-
-## Results 📊
-
-All figures are for the study zone. They are satellite signals checked against a
-small manual review, not a tree inventory.
-
-- **Tree-like cover grew for decades and has fallen since 2023.** From 506 ha in
-  1986 to 1,182 ha in 2023 (it more than doubled), then 1,045 ha in 2026
-  (-137 ha, -12%). The rest of the partido fell 21% over the same years, so the
-  recent decline is not only urban. The last three years are provisional.
-- **The rise is mostly afforestation, not city trees.** MapBiomas shows pastures
-  turning into plantations and open forest (148 ha between 2010 and 2023, almost
-  no loss), which fits the UNS reports of introduced vegetation advancing over
-  dunes. Part of the rise is recovery from the 2009 drought, and part is likely
-  canopy thickening past our NDVI threshold; we cannot separate them. At 30 m,
-  street trees and the 3:1 replanting are invisible.
-- **Real-estate development explains little of the loss.** 136 of 749 events
-  (16.9 of about 265 ha) are attributed to development, and two small 2020
-  developments were confirmed by eye. Single lots are under the 500 m² minimum,
-  and the large Monte Hermoso del Este sectors were built before the 10 m series.
-- **Other confirmed causes:** clearing in Los Bosques (about 5 ha in 2020) and a
-  road cut. The 31 ha patch of December 2025 and the 2024 peak have no known cause
-  and wait for higher-resolution imagery.
-- **Droughts and seasonality are the main source of false positives.** About half
-  of the 2020 hectares, east of Balneario Sauce Grande, were climate. No simple
-  rule separated them from real loss without discarding about a third of the real
-  ones, so the detector is unchanged apart from a minimum NDVI drop for `cva`.
-- **Ordinance 1913 (2010): inconclusive.** The before/after intervals include
-  zero, there is no control municipality, and 30 m cannot see replanting.
-- **Precision is only partly measured.** Of 37 reviewed events, `veg_to_built`
-  was right 10 of 10 and `ndvi_diff` 5 of 8, `cva` 5 of 9 and `dynamic_world` 5 of 10 (wide intervals); 2024 is almost
-  unreviewed.
-
 ## Study zone 🗺️
 
 The zone is the current urban footprint plus a 1 km margin, so it includes new
@@ -207,6 +113,38 @@ cross-check permits and replacement requirements.
 | Municipality boundary | IGN Argentina via Georef (datos.gob.ar) | CC BY 4.0 | Servicio Georef – argentina.gob.ar/georef (modified: fields added) |
 
 Full citations are in [NOTICE](NOTICE).
+
+## Results 📊
+
+All figures are for the study zone. They are satellite signals checked against a
+small manual review, not a tree inventory.
+
+- **Tree-like cover grew for decades and has fallen since 2023.** From 506 ha in
+  1986 to 1,182 ha in 2023 (it more than doubled), then 1,045 ha in 2026
+  (-137 ha, -12%). The rest of the partido fell 21% over the same years, so the
+  recent decline is not only urban. The last three years are provisional.
+- **The rise is mostly afforestation, not city trees.** MapBiomas shows pastures
+  turning into plantations and open forest (148 ha between 2010 and 2023, almost
+  no loss), which fits the UNS reports of introduced vegetation advancing over
+  dunes. Part of the rise is recovery from the 2009 drought, and part is likely
+  canopy thickening past our NDVI threshold; we cannot separate them. At 30 m,
+  street trees and the 3:1 replanting are invisible.
+- **Real-estate development explains little of the loss.** 136 of 749 events
+  (16.9 of about 265 ha) are attributed to development, and two small 2020
+  developments were confirmed by eye. Single lots are under the 500 m² minimum,
+  and the large Monte Hermoso del Este sectors were built before the 10 m series.
+- **Other confirmed causes:** clearing in Los Bosques (about 5 ha in 2020) and a
+  road cut. The 31 ha patch of December 2025 and the 2024 peak have no known cause
+  and wait for higher-resolution imagery.
+- **Droughts and seasonality are the main source of false positives.** About half
+  of the 2020 hectares, east of Balneario Sauce Grande, were climate. No simple
+  rule separated them from real loss without discarding about a third of the real
+  ones, so the detector is unchanged apart from a minimum NDVI drop for `cva`.
+- **Ordinance 1913 (2010): inconclusive.** The before/after intervals include
+  zero, there is no control municipality, and 30 m cannot see replanting.
+- **Precision is only partly measured.** Of 37 reviewed events, `veg_to_built`
+  was right 10 of 10 and `ndvi_diff` 5 of 8, `cva` 5 of 9 and `dynamic_world` 5 of 10 (wide intervals); 2024 is almost
+  unreviewed.
 
 ## Current status and validation 📊
 
@@ -416,57 +354,67 @@ km²) with a 1,000 m² minimum, and its outputs are kept in `data/exports/partid
 the source of the regional NDVI shift above and of the "rest of the partido"
 column.
 
-## Planned use of Planet imagery 🌍
+## How it works 🏗️
 
-We plan to apply to Planet's Education and Research program through a
-university affiliation. The pipeline already works without Planet data; high
-resolution imagery would address its two biggest limits, resolution and
-ground truth:
+```
+Earth Engine: Sentinel-2 / Landsat / Dynamic World / Cloud Score+
+   |  1 request per year: cloud-masked summer composite (median, +-30 days of Feb 15)
+   v
+disk cache (data/cache)  -->  SatelliteImage: reflectance, NDVI/NDBI/NDMI,
+   |                          Dynamic World label and tree probability
+   v
+detection (4 baselines: ndvi_diff | dynamic_world | cva | veg_to_built), each refined by
+   - regional NDVI shift of the pair removed (droughts)
+   - stable woody mask (woody in year t-1 and t)
+   - persistence check (the decline must still hold in year t+1)
+   - clip to the municipality polygon, minimum event area
+   v
+events (exact polygons, cause per polygon)  -->  stratified sample + review_url  -->  precision by stratum
+   +-- MapBiomas Argentina C3 cross-check
 
-1. **Ground truth.** Visual review of sampled events on ~3 m imagery to build
-   the labeled set that today is the bottleneck.
-   Open cases to settle with it: the unexplained 2024 peak and the 31 ha patch of
-   December 2025 near Balneario Sauce Grande.
-2. **Smaller events.** The median detected event is about 1,000 m², roughly 10
-   Sentinel-2 pixels but about 110 pixels at 3 m; single houses on a lot are
-   below the 500 m² minimum. A zone of about 46 km² is also a manageable area
-   for imagery that is requested by area.
-3. **Crown calibration.** Sub-10 m imagery to calibrate the area-to-trees
-   scenario range in `trees.py`.
-4. **Dating and seasonality.** Frequent revisits to date events and separate
-   seasonal variation from permanent change.
+Landsat 5/7/8/9 summer composites 1985-2026 --> LandTrendr fit per pixel
+   --> persistent tree loss/gain, rainfall (CHIRPS), MapBiomas urban area
+   --> yearly rates, before/after Ordinance 1913, animation and web map
+```
 
-**Data policy:** this repository does not contain, and will not contain,
-Planet imagery or raw Planet pixel values. Anything derived from Planet data
-will follow the program's sharing rules and carry the notice
-"Image © 20xx Planet Labs PBC". Every result above was produced without Planet
-data.
+## Design decisions 🧭
 
-## Limitations ⚠️
+- **One download per year**, not per tile: exact grid via `computePixels`
+  (raw bands as `uint16`, one `uint8` land-cover label, one `uint8` tree
+  probability). A full run used to take about 30 minutes and crashed on a
+  tile-shape mismatch; now the 10 images for 2015-2024 download in about 2.5
+  minutes in total (measured), and a re-run is served from the disk cache with
+  no Earth Engine requests for imagery.
+- LandTrendr over the whole municipality in one request did not finish in
+  minutes; the same job in row chunks of 100,000 pixels takes about a minute
+  per chunk and is cached on disk afterwards.
+- Retry with backoff, request timeouts, and a checkpoint after every processed
+  year so a failure never loses finished work.
+- Years run in parallel (4 workers, conservative for non-commercial quota).
+- Pairs of years with different sensor resolution (30 m vs. 10 m) are skipped,
+  because NDVI is not comparable across them.
 
-- Woody cover includes shrubs, dune afforestation and plantations; no free
-  layer separates natural forest from planted trees.
-- A single summer composite per year can still confuse stress or drought with
-  an actual decrease in woody cover.
-- 10 m imagery cannot count individual trees; at 30 m, urban trees whose
-  crowns are smaller than a pixel are invisible, so the long series sees dune
-  woodland and plantations, not street trees.
-- The study zone was drawn from today's built-up footprint, so it is biased
-  toward places that were developed; its rates cannot be compared with the
-  countryside's as if it were a control. The Los Bosques parcel is traced from a PDF, with about 250 m of error.
-- The long series has too few Landsat observations in the window for 9 years
-  (see `valid_fraction`) and 2012-2013 depend on Landsat 7 (striped sensor):
-  those years are interpolated. The sensor correction between Landsat
-  7 and 8/9 is one constant (0.04) estimated from 8 overlap years. The last
-  three years are provisional.
-- Before-and-after comparisons have no control municipality and cannot show
-  that the ordinance caused a change.
-- Real-estate detection depends on Dynamic World's built-up class at 10 m, which
-  confuses bright sand with buildings; the cause labels are evidence, not proof.
-- Area figures from before the polygon fix came from polygons one pixel too
-  small and counted holes as events; the partido-wide numbers above already use
-  the fixed ones.
-- Detection quality is unmeasured until the labeled sample exists.
+## Tools 🛠️
+
+- Python, NumPy, pandas
+- Google Earth Engine Python API
+- GeoPandas, Shapely, rasterio
+- OpenCV (connected components, resampling, smoothing)
+- PyYAML
+
+## Skills 🧠
+
+- Remote-sensing time series: cloud-masked seasonal composites from
+  Sentinel-2 and Landsat
+- Change detection and false-positive analysis: finding out what a detector
+  actually flags
+- Quota-aware data engineering on Earth Engine: single-request downloads,
+  disk cache, retries, checkpoints
+- Validation design: stratified sampling, Wilson intervals, independent
+  cross-checks
+- Reproducible research code: offline self-checks, honest reporting of
+  negative results
+- Open-data licensing and attribution
 
 ## Structure
 
@@ -519,6 +467,58 @@ Offline self-checks (no Earth Engine needed):
 `gee_mh.validation`, `gee_mh.attribution`, `gee_mh.aoi --selftest`,
 `gee_mh.developments --selftest`, `gee_mh.longterm --selftest`,
 `gee_mh.external_validation --selftest`.
+
+## Planned use of Planet imagery 🌍
+
+We plan to apply to Planet's Education and Research program through a
+university affiliation. The pipeline already works without Planet data; high
+resolution imagery would address its two biggest limits, resolution and
+ground truth:
+
+1. **Ground truth.** Visual review of sampled events on ~3 m imagery to build
+   the labeled set that today is the bottleneck.
+   Open cases to settle with it: the unexplained 2024 peak and the 31 ha patch of
+   December 2025 near Balneario Sauce Grande.
+2. **Smaller events.** The median detected event is about 1,000 m², roughly 10
+   Sentinel-2 pixels but about 110 pixels at 3 m; single houses on a lot are
+   below the 500 m² minimum. A zone of about 46 km² is also a manageable area
+   for imagery that is requested by area.
+3. **Crown calibration.** Sub-10 m imagery to calibrate the area-to-trees
+   scenario range in `trees.py`.
+4. **Dating and seasonality.** Frequent revisits to date events and separate
+   seasonal variation from permanent change.
+
+**Data policy:** this repository does not contain, and will not contain,
+Planet imagery or raw Planet pixel values. Anything derived from Planet data
+will follow the program's sharing rules and carry the notice
+"Image © 20xx Planet Labs PBC". Every result above was produced without Planet
+data.
+
+## Limitations ⚠️
+
+- Woody cover includes shrubs, dune afforestation and plantations; no free
+  layer separates natural forest from planted trees.
+- A single summer composite per year can still confuse stress or drought with
+  an actual decrease in woody cover.
+- 10 m imagery cannot count individual trees; at 30 m, urban trees whose
+  crowns are smaller than a pixel are invisible, so the long series sees dune
+  woodland and plantations, not street trees.
+- The study zone was drawn from today's built-up footprint, so it is biased
+  toward places that were developed; its rates cannot be compared with the
+  countryside's as if it were a control. The Los Bosques parcel is traced from a PDF, with about 250 m of error.
+- The long series has too few Landsat observations in the window for 9 years
+  (see `valid_fraction`) and 2012-2013 depend on Landsat 7 (striped sensor):
+  those years are interpolated. The sensor correction between Landsat
+  7 and 8/9 is one constant (0.04) estimated from 8 overlap years. The last
+  three years are provisional.
+- Before-and-after comparisons have no control municipality and cannot show
+  that the ordinance caused a change.
+- Real-estate detection depends on Dynamic World's built-up class at 10 m, which
+  confuses bright sand with buildings; the cause labels are evidence, not proof.
+- Area figures from before the polygon fix came from polygons one pixel too
+  small and counted holes as events; the partido-wide numbers above already use
+  the fixed ones.
+- Detection quality is unmeasured until the labeled sample exists.
 
 ## License
 

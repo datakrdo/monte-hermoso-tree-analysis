@@ -40,103 +40,6 @@ Landsat y Sentinel-2. SPOT 5 (SPOT World Heritage de CNES, nivel 1A, bajado a ma
 de GEODES) no tiene banda azul, así que el color es simulado (el azul se aproxima con el verde); `python3 -m gee_mh.spot` la georreferencia con sus cuatro puntos de
 las esquinas y quita el desfase que queda contra Sentinel-2.
 
-## Herramientas 🛠️
-
-- Python, NumPy, pandas
-- API de Python de Google Earth Engine
-- GeoPandas, Shapely, rasterio
-- OpenCV (componentes conectados, remuestreo, suavizado)
-- PyYAML
-
-## Habilidades 🧠
-
-- Series temporales de teledetección: compuestos estacionales sin nubes con
-  Sentinel-2 y Landsat
-- Detección de cambios y análisis de falsos positivos: averiguar qué marca
-  realmente un detector
-- Ingeniería de datos consciente de la cuota en Earth Engine: descargas de un
-  solo request, caché en disco, reintentos, checkpoints
-- Diseño de validación: muestreo estratificado, intervalos de Wilson,
-  contrastes independientes
-- Código de investigación reproducible: autochequeos offline, reporte honesto
-  de resultados negativos
-- Licencias y atribución de datos abiertos
-
-## Decisiones de diseño 🧭
-
-- **Una descarga por año**, no por tile: grilla exacta con `computePixels`
-  (bandas crudas como `uint16`, una etiqueta de cobertura `uint8`, una
-  probabilidad de árbol `uint8` y una de construido `uint8`). Una corrida
-  completa antes tardaba unos 30 minutos y fallaba por un desajuste de tamaño
-  entre tiles; ahora las imágenes de 2015-2024 bajan en unos 2,5 minutos en
-  total (medido), y una nueva corrida sale de la caché en disco sin pedir
-  imágenes a Earth Engine.
-- LandTrendr sobre todo el partido en un solo pedido no terminó en minutos; el
-  mismo trabajo en tramos de 100.000 píxeles tarda cerca de un minuto por tramo
-  y después queda en caché.
-- Reintentos con espera creciente, timeouts y un checkpoint tras cada año
-  procesado: un fallo no pierde el trabajo ya terminado.
-- Los años corren en paralelo (4 hilos, conservador para la cuota no comercial).
-- Los pares de años con distinta resolución de sensor (30 m vs. 10 m) se
-  omiten, porque el NDVI no es comparable entre ellos.
-
-## Cómo funciona 🏗️
-
-```
-Earth Engine: Sentinel-2 / Landsat / Dynamic World / Cloud Score+
-   |  1 pedido por año: compuesto de verano sin nubes (mediana, +-30 días del 15 de feb)
-   v
-caché en disco (data/cache)  -->  SatelliteImage: reflectancia, NDVI/NDBI/NDMI,
-   |                              etiqueta y probabilidad de árbol de Dynamic World
-   v
-detección (4 baselines: ndvi_diff | dynamic_world | cva | veg_to_built), cada uno refinado con
-   - corrimiento regional de NDVI del par descontado (sequías)
-   - máscara leñosa estable (leñosa en los años t-1 y t)
-   - chequeo de persistencia (la caída debe seguir en el año t+1)
-   - recorte al polígono del partido, área mínima del evento
-   v
-eventos (polígonos exactos, causa por polígono)  -->  muestra estratificada + review_url  -->  precisión por estrato
-   +-- contraste con MapBiomas Argentina C3
-
-Compuestos de verano Landsat 5/7/8/9 1985-2026 --> ajuste LandTrendr por píxel
-   --> pérdida/ganancia persistente de árboles, lluvia (CHIRPS), área urbana MapBiomas
-   --> tasas anuales, antes/después de la Ordenanza 1913, animación y mapa web
-```
-
-## Resultados 📊
-
-Todas las cifras son de la zona de estudio. Son señales satelitales contrastadas
-con una revisión manual chica, no un inventario de árboles.
-
-- **La cobertura arbórea creció durante décadas y cae desde 2023.** De 506 ha en
-  1986 a 1.182 ha en 2023 (más del doble), y 1.045 ha en 2026 (-137 ha, -12%).
-  El resto del partido cayó 21% en esos mismos años, así que la baja reciente no
-  es solo urbana. Los últimos tres años son provisorios.
-- **La subida es sobre todo forestación, no arbolado de ciudad.** MapBiomas
-  muestra pastizales que pasan a plantación y bosque abierto (148 ha entre 2010 y
-  2023, casi sin pérdida), lo que encaja con los trabajos de la UNS sobre
-  vegetación introducida que avanza sobre los médanos. Una parte es recuperación
-  de la sequía de 2009 y otra probablemente es densificación del follaje por
-  encima de nuestro umbral de NDVI; no podemos separarlas. A 30 m no se ven los
-  árboles de calle ni el replante 3 a 1.
-- **El desarrollo inmobiliario explica poco de la pérdida.** 136 de 749 eventos
-  (16,9 de unas 265 ha) se atribuyen a desarrollo, y se confirmaron a ojo dos
-  desarrollos chicos de 2020. Un lote suelto queda bajo el mínimo de 500 m², y los
-  grandes sectores de Monte Hermoso del Este se hicieron antes de la serie de 10 m.
-- **Otras causas confirmadas:** desmonte en Los Bosques (unas 5 ha en 2020) y la
-  apertura de un camino. La mancha de 31 ha de diciembre de 2025 y el pico de 2024
-  no tienen causa conocida y esperan imágenes de mayor resolución.
-- **Las sequías y la estacionalidad son la principal fuente de falsos positivos.**
-  Cerca de la mitad de las hectáreas de 2020, al este de Balneario Sauce Grande,
-  eran clima. Ninguna regla simple los separó de la pérdida real sin descartar
-  cerca de un tercio de los reales, así que el detector no cambió salvo una caída
-  mínima de NDVI para `cva`.
-- **Ordenanza 1913 (2010): inconcluso.** Los intervalos de antes y después
-  incluyen el cero, no hay municipio de control y a 30 m no se ve el replante.
-- **La precisión está medida solo en parte.** De 37 eventos revisados,
-  `veg_to_built` acertó 10 de 10 y `ndvi_diff` 5 de 8, `cva` 5 de 9 y `dynamic_world` 5 de 10 (intervalos anchos); 2024
-  casi no está revisado.
-
 ## Zona de estudio 🗺️
 
 La zona es la huella urbana actual más un margen de 1 km, así que incluye
@@ -215,6 +118,40 @@ ayudar a contrastar permisos y reposiciones.
 | Límite del partido | IGN Argentina vía Georef (datos.gob.ar) | CC BY 4.0 | Servicio Georef – argentina.gob.ar/georef (modificado: campos agregados) |
 
 Las citas completas están en [NOTICE](NOTICE).
+
+## Resultados 📊
+
+Todas las cifras son de la zona de estudio. Son señales satelitales contrastadas
+con una revisión manual chica, no un inventario de árboles.
+
+- **La cobertura arbórea creció durante décadas y cae desde 2023.** De 506 ha en
+  1986 a 1.182 ha en 2023 (más del doble), y 1.045 ha en 2026 (-137 ha, -12%).
+  El resto del partido cayó 21% en esos mismos años, así que la baja reciente no
+  es solo urbana. Los últimos tres años son provisorios.
+- **La subida es sobre todo forestación, no arbolado de ciudad.** MapBiomas
+  muestra pastizales que pasan a plantación y bosque abierto (148 ha entre 2010 y
+  2023, casi sin pérdida), lo que encaja con los trabajos de la UNS sobre
+  vegetación introducida que avanza sobre los médanos. Una parte es recuperación
+  de la sequía de 2009 y otra probablemente es densificación del follaje por
+  encima de nuestro umbral de NDVI; no podemos separarlas. A 30 m no se ven los
+  árboles de calle ni el replante 3 a 1.
+- **El desarrollo inmobiliario explica poco de la pérdida.** 136 de 749 eventos
+  (16,9 de unas 265 ha) se atribuyen a desarrollo, y se confirmaron a ojo dos
+  desarrollos chicos de 2020. Un lote suelto queda bajo el mínimo de 500 m², y los
+  grandes sectores de Monte Hermoso del Este se hicieron antes de la serie de 10 m.
+- **Otras causas confirmadas:** desmonte en Los Bosques (unas 5 ha en 2020) y la
+  apertura de un camino. La mancha de 31 ha de diciembre de 2025 y el pico de 2024
+  no tienen causa conocida y esperan imágenes de mayor resolución.
+- **Las sequías y la estacionalidad son la principal fuente de falsos positivos.**
+  Cerca de la mitad de las hectáreas de 2020, al este de Balneario Sauce Grande,
+  eran clima. Ninguna regla simple los separó de la pérdida real sin descartar
+  cerca de un tercio de los reales, así que el detector no cambió salvo una caída
+  mínima de NDVI para `cva`.
+- **Ordenanza 1913 (2010): inconcluso.** Los intervalos de antes y después
+  incluyen el cero, no hay municipio de control y a 30 m no se ve el replante.
+- **La precisión está medida solo en parte.** De 37 eventos revisados,
+  `veg_to_built` acertó 10 de 10 y `ndvi_diff` 5 de 8, `cva` 5 de 9 y `dynamic_world` 5 de 10 (intervalos anchos); 2024
+  casi no está revisado.
 
 ## Estado actual y validación 📊
 
@@ -433,6 +370,121 @@ km²) con un mínimo de 1.000 m², y sus salidas quedan en `data/exports/partido
 ha (1986), 4.068 (2009), 4.710 (2016), 4.399 (2023) y 3.594 (2026). De ahí sale el
 corrimiento regional de NDVI de arriba y la columna "resto del partido".
 
+## Cómo funciona 🏗️
+
+```
+Earth Engine: Sentinel-2 / Landsat / Dynamic World / Cloud Score+
+   |  1 pedido por año: compuesto de verano sin nubes (mediana, +-30 días del 15 de feb)
+   v
+caché en disco (data/cache)  -->  SatelliteImage: reflectancia, NDVI/NDBI/NDMI,
+   |                              etiqueta y probabilidad de árbol de Dynamic World
+   v
+detección (4 baselines: ndvi_diff | dynamic_world | cva | veg_to_built), cada uno refinado con
+   - corrimiento regional de NDVI del par descontado (sequías)
+   - máscara leñosa estable (leñosa en los años t-1 y t)
+   - chequeo de persistencia (la caída debe seguir en el año t+1)
+   - recorte al polígono del partido, área mínima del evento
+   v
+eventos (polígonos exactos, causa por polígono)  -->  muestra estratificada + review_url  -->  precisión por estrato
+   +-- contraste con MapBiomas Argentina C3
+
+Compuestos de verano Landsat 5/7/8/9 1985-2026 --> ajuste LandTrendr por píxel
+   --> pérdida/ganancia persistente de árboles, lluvia (CHIRPS), área urbana MapBiomas
+   --> tasas anuales, antes/después de la Ordenanza 1913, animación y mapa web
+```
+
+## Decisiones de diseño 🧭
+
+- **Una descarga por año**, no por tile: grilla exacta con `computePixels`
+  (bandas crudas como `uint16`, una etiqueta de cobertura `uint8`, una
+  probabilidad de árbol `uint8` y una de construido `uint8`). Una corrida
+  completa antes tardaba unos 30 minutos y fallaba por un desajuste de tamaño
+  entre tiles; ahora las imágenes de 2015-2024 bajan en unos 2,5 minutos en
+  total (medido), y una nueva corrida sale de la caché en disco sin pedir
+  imágenes a Earth Engine.
+- LandTrendr sobre todo el partido en un solo pedido no terminó en minutos; el
+  mismo trabajo en tramos de 100.000 píxeles tarda cerca de un minuto por tramo
+  y después queda en caché.
+- Reintentos con espera creciente, timeouts y un checkpoint tras cada año
+  procesado: un fallo no pierde el trabajo ya terminado.
+- Los años corren en paralelo (4 hilos, conservador para la cuota no comercial).
+- Los pares de años con distinta resolución de sensor (30 m vs. 10 m) se
+  omiten, porque el NDVI no es comparable entre ellos.
+
+## Herramientas 🛠️
+
+- Python, NumPy, pandas
+- API de Python de Google Earth Engine
+- GeoPandas, Shapely, rasterio
+- OpenCV (componentes conectados, remuestreo, suavizado)
+- PyYAML
+
+## Habilidades 🧠
+
+- Series temporales de teledetección: compuestos estacionales sin nubes con
+  Sentinel-2 y Landsat
+- Detección de cambios y análisis de falsos positivos: averiguar qué marca
+  realmente un detector
+- Ingeniería de datos consciente de la cuota en Earth Engine: descargas de un
+  solo request, caché en disco, reintentos, checkpoints
+- Diseño de validación: muestreo estratificado, intervalos de Wilson,
+  contrastes independientes
+- Código de investigación reproducible: autochequeos offline, reporte honesto
+  de resultados negativos
+- Licencias y atribución de datos abiertos
+
+## Estructura
+
+| Módulo | Función |
+|---|---|
+| `preprocessing.py` | Descarga de Earth Engine, compuestos, índices, caché en disco |
+| `timeseries.py` | Serie anual (en paralelo), con el año previo/siguiente como contexto |
+| `masks.py`, `detection.py` | Máscaras de terreno, los cuatro baselines, corrimiento regional de NDVI, refinamiento (`detect_pair`) |
+| `attribution.py`, `trees.py` | Causa por polígono, rango de escenarios de cantidad de árboles |
+| `longterm.py` | Serie Landsat 1985-2026 con LandTrendr, tasas, antes/después de la ordenanza |
+| `animation.py`, `docs/` | Cuadros anuales, GIF y mapa web estático (`docs/index.html`) |
+| `data/reference/` | Desarrollos inmobiliarios públicos hallados en prensa y fuentes municipales |
+| `export.py`, `validation.py` | GeoJSON/CSV/GeoTIFF, métricas, muestreo estratificado, precisión |
+| `aoi.py`, `config.py` | Límite del partido, zona de estudio, carga de `config.yaml` |
+| `developments.py` | Eventos cerca de los desarrollos inmobiliarios conocidos |
+| `compare_baselines.py`, `external_validation.py`, `pipeline.py` | Puntos de entrada |
+
+## Inicio rápido 🚀
+
+```bash
+pip install -r requirements.txt
+earthengine authenticate
+# configurá tu propio proyecto de Google Cloud en config.yaml -> ee_project
+
+export PYTHONPATH=src
+python3 -m gee_mh.aoi                 # descarga el límite del partido
+python3 -m gee_mh.aoi --zona          # arma la zona de estudio (huella urbana + 1 km), data/aoi/zona_urbana.geojson
+python3 -m gee_mh.compare_baselines --start-year 2016 --end-year 2026
+python3 -m gee_mh.external_validation --full --start-year 2016 --end-year 2025
+python3 -m gee_mh.validation --labels data/exports/manual_review_sample.csv
+python3 -m gee_mh.longterm --start-year 1985 --end-year 2026   # serie Landsat, tasas, tabla de la ordenanza
+python3 -m gee_mh.developments                                  # eventos cerca de los desarrollos conocidos
+python3 -m gee_mh.animation                                      # docs/monte_hermoso.gif y datos del mapa web
+```
+
+### Actualización anual
+
+`.github/workflows/annual-update.yml` corre el 1 de junio (o a mano desde la
+pestaña Actions), cuando los compuestos del verano ya están completos: el año
+final por defecto es el actual recién desde el 1 de mayo
+(`timeseries.last_summer_year`). Reutiliza los compuestos guardados en el
+release `pipeline-cache`, así que solo baja el verano nuevo, y abre un pull
+request `update-<año>` con `docs/` regenerado. Nada se publica hasta que lo
+fusiones. Necesita el secret `EE_SERVICE_ACCOUNT_KEY` (service account de Earth
+Engine) y "Allow GitHub Actions to create pull requests" habilitado. Las tablas
+de este README son manuales y hay que actualizarlas después del merge.
+
+Autochequeos sin conexión (no necesitan Earth Engine):
+`python3 -m gee_mh.preprocessing`, `gee_mh.detection`, `gee_mh.export`,
+`gee_mh.validation`, `gee_mh.attribution`, `gee_mh.aoi --selftest`,
+`gee_mh.developments --selftest`, `gee_mh.longterm --selftest`,
+`gee_mh.external_validation --selftest`.
+
 ## Uso previsto de imágenes de Planet 🌍
 
 Planeamos postular al programa Education and Research de Planet a través de una
@@ -486,58 +538,6 @@ datos de Planet.
   completo de arriba ya usan los corregidos.
 - La calidad de la detección no está medida hasta que exista la muestra
   etiquetada.
-
-## Estructura
-
-| Módulo | Función |
-|---|---|
-| `preprocessing.py` | Descarga de Earth Engine, compuestos, índices, caché en disco |
-| `timeseries.py` | Serie anual (en paralelo), con el año previo/siguiente como contexto |
-| `masks.py`, `detection.py` | Máscaras de terreno, los cuatro baselines, corrimiento regional de NDVI, refinamiento (`detect_pair`) |
-| `attribution.py`, `trees.py` | Causa por polígono, rango de escenarios de cantidad de árboles |
-| `longterm.py` | Serie Landsat 1985-2026 con LandTrendr, tasas, antes/después de la ordenanza |
-| `animation.py`, `docs/` | Cuadros anuales, GIF y mapa web estático (`docs/index.html`) |
-| `data/reference/` | Desarrollos inmobiliarios públicos hallados en prensa y fuentes municipales |
-| `export.py`, `validation.py` | GeoJSON/CSV/GeoTIFF, métricas, muestreo estratificado, precisión |
-| `aoi.py`, `config.py` | Límite del partido, zona de estudio, carga de `config.yaml` |
-| `developments.py` | Eventos cerca de los desarrollos inmobiliarios conocidos |
-| `compare_baselines.py`, `external_validation.py`, `pipeline.py` | Puntos de entrada |
-
-## Inicio rápido 🚀
-
-```bash
-pip install -r requirements.txt
-earthengine authenticate
-# configurá tu propio proyecto de Google Cloud en config.yaml -> ee_project
-
-export PYTHONPATH=src
-python3 -m gee_mh.aoi                 # descarga el límite del partido
-python3 -m gee_mh.aoi --zona          # arma la zona de estudio (huella urbana + 1 km), data/aoi/zona_urbana.geojson
-python3 -m gee_mh.compare_baselines --start-year 2016 --end-year 2026
-python3 -m gee_mh.external_validation --full --start-year 2016 --end-year 2025
-python3 -m gee_mh.validation --labels data/exports/manual_review_sample.csv
-python3 -m gee_mh.longterm --start-year 1985 --end-year 2026   # serie Landsat, tasas, tabla de la ordenanza
-python3 -m gee_mh.developments                                  # eventos cerca de los desarrollos conocidos
-python3 -m gee_mh.animation                                      # docs/monte_hermoso.gif y datos del mapa web
-```
-
-### Actualización anual
-
-`.github/workflows/annual-update.yml` corre el 1 de junio (o a mano desde la
-pestaña Actions), cuando los compuestos del verano ya están completos: el año
-final por defecto es el actual recién desde el 1 de mayo
-(`timeseries.last_summer_year`). Reutiliza los compuestos guardados en el
-release `pipeline-cache`, así que solo baja el verano nuevo, y abre un pull
-request `update-<año>` con `docs/` regenerado. Nada se publica hasta que lo
-fusiones. Necesita el secret `EE_SERVICE_ACCOUNT_KEY` (service account de Earth
-Engine) y "Allow GitHub Actions to create pull requests" habilitado. Las tablas
-de este README son manuales y hay que actualizarlas después del merge.
-
-Autochequeos sin conexión (no necesitan Earth Engine):
-`python3 -m gee_mh.preprocessing`, `gee_mh.detection`, `gee_mh.export`,
-`gee_mh.validation`, `gee_mh.attribution`, `gee_mh.aoi --selftest`,
-`gee_mh.developments --selftest`, `gee_mh.longterm --selftest`,
-`gee_mh.external_validation --selftest`.
 
 ## Licencia
 
