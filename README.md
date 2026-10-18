@@ -39,7 +39,69 @@ Sentinel-2. SPOT 5 (CNES SPOT World Heritage, level 1A, downloaded by hand from
 GEODES) has no blue band, so the color is simulated (blue is approximated with green); `python3 -m gee_mh.spot` georeferences it from its four corner
 points and removes the remaining offset against Sentinel-2.
 
-## Main findings 🔎
+## Tools 🛠️
+
+- Python, NumPy, pandas
+- Google Earth Engine Python API
+- GeoPandas, Shapely, rasterio
+- OpenCV (connected components, resampling, smoothing)
+- PyYAML
+
+## Skills 🧠
+
+- Remote-sensing time series: cloud-masked seasonal composites from
+  Sentinel-2 and Landsat
+- Change detection and false-positive analysis: finding out what a detector
+  actually flags
+- Quota-aware data engineering on Earth Engine: single-request downloads,
+  disk cache, retries, checkpoints
+- Validation design: stratified sampling, Wilson intervals, independent
+  cross-checks
+- Reproducible research code: offline self-checks, honest reporting of
+  negative results
+- Open-data licensing and attribution
+
+## Design decisions 🧭
+
+- **One download per year**, not per tile: exact grid via `computePixels`
+  (raw bands as `uint16`, one `uint8` land-cover label, one `uint8` tree
+  probability). A full run used to take about 30 minutes and crashed on a
+  tile-shape mismatch; now the 10 images for 2015-2024 download in about 2.5
+  minutes in total (measured), and a re-run is served from the disk cache with
+  no Earth Engine requests for imagery.
+- LandTrendr over the whole municipality in one request did not finish in
+  minutes; the same job in row chunks of 100,000 pixels takes about a minute
+  per chunk and is cached on disk afterwards.
+- Retry with backoff, request timeouts, and a checkpoint after every processed
+  year so a failure never loses finished work.
+- Years run in parallel (4 workers, conservative for non-commercial quota).
+- Pairs of years with different sensor resolution (30 m vs. 10 m) are skipped,
+  because NDVI is not comparable across them.
+
+## How it works 🏗️
+
+```
+Earth Engine: Sentinel-2 / Landsat / Dynamic World / Cloud Score+
+   |  1 request per year: cloud-masked summer composite (median, +-30 days of Feb 15)
+   v
+disk cache (data/cache)  -->  SatelliteImage: reflectance, NDVI/NDBI/NDMI,
+   |                          Dynamic World label and tree probability
+   v
+detection (4 baselines: ndvi_diff | dynamic_world | cva | veg_to_built), each refined by
+   - regional NDVI shift of the pair removed (droughts)
+   - stable woody mask (woody in year t-1 and t)
+   - persistence check (the decline must still hold in year t+1)
+   - clip to the municipality polygon, minimum event area
+   v
+events (exact polygons, cause per polygon)  -->  stratified sample + review_url  -->  precision by stratum
+   +-- MapBiomas Argentina C3 cross-check
+
+Landsat 5/7/8/9 summer composites 1985-2026 --> LandTrendr fit per pixel
+   --> persistent tree loss/gain, rainfall (CHIRPS), MapBiomas urban area
+   --> yearly rates, before/after Ordinance 1913, animation and web map
+```
+
+## Results 📊
 
 All figures are for the study zone. They are satellite signals checked against a
 small manual review, not a tree inventory.
@@ -145,46 +207,6 @@ cross-check permits and replacement requirements.
 | Municipality boundary | IGN Argentina via Georef (datos.gob.ar) | CC BY 4.0 | Servicio Georef – argentina.gob.ar/georef (modified: fields added) |
 
 Full citations are in [NOTICE](NOTICE).
-
-## Pipeline 🏗️
-
-```
-Earth Engine: Sentinel-2 / Landsat / Dynamic World / Cloud Score+
-   |  1 request per year: cloud-masked summer composite (median, +-30 days of Feb 15)
-   v
-disk cache (data/cache)  -->  SatelliteImage: reflectance, NDVI/NDBI/NDMI,
-   |                          Dynamic World label and tree probability
-   v
-detection (4 baselines: ndvi_diff | dynamic_world | cva | veg_to_built), each refined by
-   - regional NDVI shift of the pair removed (droughts)
-   - stable woody mask (woody in year t-1 and t)
-   - persistence check (the decline must still hold in year t+1)
-   - clip to the municipality polygon, minimum event area
-   v
-events (exact polygons, cause per polygon)  -->  stratified sample + review_url  -->  precision by stratum
-   +-- MapBiomas Argentina C3 cross-check
-
-Landsat 5/7/8/9 summer composites 1985-2026 --> LandTrendr fit per pixel
-   --> persistent tree loss/gain, rainfall (CHIRPS), MapBiomas urban area
-   --> yearly rates, before/after Ordinance 1913, animation and web map
-```
-
-## Engineering notes 🧭
-
-- **One download per year**, not per tile: exact grid via `computePixels`
-  (raw bands as `uint16`, one `uint8` land-cover label, one `uint8` tree
-  probability). A full run used to take about 30 minutes and crashed on a
-  tile-shape mismatch; now the 10 images for 2015-2024 download in about 2.5
-  minutes in total (measured), and a re-run is served from the disk cache with
-  no Earth Engine requests for imagery.
-- LandTrendr over the whole municipality in one request did not finish in
-  minutes; the same job in row chunks of 100,000 pixels takes about a minute
-  per chunk and is cached on disk afterwards.
-- Retry with backoff, request timeouts, and a checkpoint after every processed
-  year so a failure never loses finished work.
-- Years run in parallel (4 workers, conservative for non-commercial quota).
-- Pairs of years with different sensor resolution (30 m vs. 10 m) are skipped,
-  because NDVI is not comparable across them.
 
 ## Current status and validation 📊
 
@@ -420,6 +442,48 @@ will follow the program's sharing rules and carry the notice
 "Image © 20xx Planet Labs PBC". Every result above was produced without Planet
 data.
 
+## Limitations ⚠️
+
+- Woody cover includes shrubs, dune afforestation and plantations; no free
+  layer separates natural forest from planted trees.
+- A single summer composite per year can still confuse stress or drought with
+  an actual decrease in woody cover.
+- 10 m imagery cannot count individual trees; at 30 m, urban trees whose
+  crowns are smaller than a pixel are invisible, so the long series sees dune
+  woodland and plantations, not street trees.
+- The study zone was drawn from today's built-up footprint, so it is biased
+  toward places that were developed; its rates cannot be compared with the
+  countryside's as if it were a control. The Los Bosques parcel is traced from a PDF, with about 250 m of error.
+- The long series has too few Landsat observations in the window for 9 years
+  (see `valid_fraction`) and 2012-2013 depend on Landsat 7 (striped sensor):
+  those years are interpolated. The sensor correction between Landsat
+  7 and 8/9 is one constant (0.04) estimated from 8 overlap years. The last
+  three years are provisional.
+- Before-and-after comparisons have no control municipality and cannot show
+  that the ordinance caused a change.
+- Real-estate detection depends on Dynamic World's built-up class at 10 m, which
+  confuses bright sand with buildings; the cause labels are evidence, not proof.
+- Area figures from before the polygon fix came from polygons one pixel too
+  small and counted holes as events; the partido-wide numbers above already use
+  the fixed ones.
+- Detection quality is unmeasured until the labeled sample exists.
+
+## Structure
+
+| Module | Role |
+|---|---|
+| `preprocessing.py` | Earth Engine download, composites, indices, disk cache |
+| `timeseries.py` | Annual series (parallel), with previous/next year as context |
+| `masks.py`, `detection.py` | Land masks, the four baselines, regional NDVI shift, refinement (`detect_pair`) |
+| `attribution.py`, `trees.py` | Cause per polygon, tree-count scenario range |
+| `longterm.py` | Landsat 1985-2026 series with LandTrendr, rates, before/after the ordinance |
+| `animation.py`, `docs/` | Yearly frames, GIF and static web map (`docs/index.html`) |
+| `data/reference/` | Public real-estate developments found in news and municipal sources |
+| `export.py`, `validation.py` | GeoJSON/CSV/GeoTIFF, metrics, stratified sampling, precision |
+| `aoi.py`, `config.py` | Municipality boundary, study zone, `config.yaml` loading |
+| `developments.py` | Events near the known real-estate developments |
+| `compare_baselines.py`, `external_validation.py`, `pipeline.py` | Entry points |
+
 ## Quick start 🚀
 
 ```bash
@@ -456,73 +520,9 @@ Offline self-checks (no Earth Engine needed):
 `gee_mh.developments --selftest`, `gee_mh.longterm --selftest`,
 `gee_mh.external_validation --selftest`.
 
-## Repository layout 📦
+## License
 
-| Module | Role |
-|---|---|
-| `preprocessing.py` | Earth Engine download, composites, indices, disk cache |
-| `timeseries.py` | Annual series (parallel), with previous/next year as context |
-| `masks.py`, `detection.py` | Land masks, the four baselines, regional NDVI shift, refinement (`detect_pair`) |
-| `attribution.py`, `trees.py` | Cause per polygon, tree-count scenario range |
-| `longterm.py` | Landsat 1985-2026 series with LandTrendr, rates, before/after the ordinance |
-| `animation.py`, `docs/` | Yearly frames, GIF and static web map (`docs/index.html`) |
-| `data/reference/` | Public real-estate developments found in news and municipal sources |
-| `export.py`, `validation.py` | GeoJSON/CSV/GeoTIFF, metrics, stratified sampling, precision |
-| `aoi.py`, `config.py` | Municipality boundary, study zone, `config.yaml` loading |
-| `developments.py` | Events near the known real-estate developments |
-| `compare_baselines.py`, `external_validation.py`, `pipeline.py` | Entry points |
-
-## Tools 🛠️
-
-- Python, NumPy, pandas
-- Google Earth Engine Python API
-- GeoPandas, Shapely, rasterio
-- OpenCV (connected components, resampling, smoothing)
-- PyYAML
-
-## Skills 🧠
-
-- Remote-sensing time series: cloud-masked seasonal composites from
-  Sentinel-2 and Landsat
-- Change detection and false-positive analysis: finding out what a detector
-  actually flags
-- Quota-aware data engineering on Earth Engine: single-request downloads,
-  disk cache, retries, checkpoints
-- Validation design: stratified sampling, Wilson intervals, independent
-  cross-checks
-- Reproducible research code: offline self-checks, honest reporting of
-  negative results
-- Open-data licensing and attribution
-
-## Limitations ⚠️
-
-- Woody cover includes shrubs, dune afforestation and plantations; no free
-  layer separates natural forest from planted trees.
-- A single summer composite per year can still confuse stress or drought with
-  an actual decrease in woody cover.
-- 10 m imagery cannot count individual trees; at 30 m, urban trees whose
-  crowns are smaller than a pixel are invisible, so the long series sees dune
-  woodland and plantations, not street trees.
-- The study zone was drawn from today's built-up footprint, so it is biased
-  toward places that were developed; its rates cannot be compared with the
-  countryside's as if it were a control. The Los Bosques parcel is traced from a PDF, with about 250 m of error.
-- The long series has too few Landsat observations in the window for 9 years
-  (see `valid_fraction`) and 2012-2013 depend on Landsat 7 (striped sensor):
-  those years are interpolated. The sensor correction between Landsat
-  7 and 8/9 is one constant (0.04) estimated from 8 overlap years. The last
-  three years are provisional.
-- Before-and-after comparisons have no control municipality and cannot show
-  that the ordinance caused a change.
-- Real-estate detection depends on Dynamic World's built-up class at 10 m, which
-  confuses bright sand with buildings; the cause labels are evidence, not proof.
-- Area figures from before the polygon fix came from polygons one pixel too
-  small and counted holes as events; the partido-wide numbers above already use
-  the fixed ones.
-- Detection quality is unmeasured until the labeled sample exists.
-
-## Acknowledgements and license 📎
-
-The idea and initial design come from the Omdena
+**Acknowledgements.** The idea and initial design come from the Omdena
 [Córdoba, Argentina chapter](https://github.com/OmdenaAI/CordobaArgentinaChapter_MonitoringLandUseTransformation)
 project on land-use change detection; no files from that repository are
 included here. See [NOTICE](NOTICE). Released under the MIT License

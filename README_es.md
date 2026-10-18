@@ -40,7 +40,70 @@ Landsat y Sentinel-2. SPOT 5 (SPOT World Heritage de CNES, nivel 1A, bajado a ma
 de GEODES) no tiene banda azul, así que el color es simulado (el azul se aproxima con el verde); `python3 -m gee_mh.spot` la georreferencia con sus cuatro puntos de
 las esquinas y quita el desfase que queda contra Sentinel-2.
 
-## Hallazgos principales 🔎
+## Herramientas 🛠️
+
+- Python, NumPy, pandas
+- API de Python de Google Earth Engine
+- GeoPandas, Shapely, rasterio
+- OpenCV (componentes conectados, remuestreo, suavizado)
+- PyYAML
+
+## Habilidades 🧠
+
+- Series temporales de teledetección: compuestos estacionales sin nubes con
+  Sentinel-2 y Landsat
+- Detección de cambios y análisis de falsos positivos: averiguar qué marca
+  realmente un detector
+- Ingeniería de datos consciente de la cuota en Earth Engine: descargas de un
+  solo request, caché en disco, reintentos, checkpoints
+- Diseño de validación: muestreo estratificado, intervalos de Wilson,
+  contrastes independientes
+- Código de investigación reproducible: autochequeos offline, reporte honesto
+  de resultados negativos
+- Licencias y atribución de datos abiertos
+
+## Decisiones de diseño 🧭
+
+- **Una descarga por año**, no por tile: grilla exacta con `computePixels`
+  (bandas crudas como `uint16`, una etiqueta de cobertura `uint8`, una
+  probabilidad de árbol `uint8` y una de construido `uint8`). Una corrida
+  completa antes tardaba unos 30 minutos y fallaba por un desajuste de tamaño
+  entre tiles; ahora las imágenes de 2015-2024 bajan en unos 2,5 minutos en
+  total (medido), y una nueva corrida sale de la caché en disco sin pedir
+  imágenes a Earth Engine.
+- LandTrendr sobre todo el partido en un solo pedido no terminó en minutos; el
+  mismo trabajo en tramos de 100.000 píxeles tarda cerca de un minuto por tramo
+  y después queda en caché.
+- Reintentos con espera creciente, timeouts y un checkpoint tras cada año
+  procesado: un fallo no pierde el trabajo ya terminado.
+- Los años corren en paralelo (4 hilos, conservador para la cuota no comercial).
+- Los pares de años con distinta resolución de sensor (30 m vs. 10 m) se
+  omiten, porque el NDVI no es comparable entre ellos.
+
+## Cómo funciona 🏗️
+
+```
+Earth Engine: Sentinel-2 / Landsat / Dynamic World / Cloud Score+
+   |  1 pedido por año: compuesto de verano sin nubes (mediana, +-30 días del 15 de feb)
+   v
+caché en disco (data/cache)  -->  SatelliteImage: reflectancia, NDVI/NDBI/NDMI,
+   |                              etiqueta y probabilidad de árbol de Dynamic World
+   v
+detección (4 baselines: ndvi_diff | dynamic_world | cva | veg_to_built), cada uno refinado con
+   - corrimiento regional de NDVI del par descontado (sequías)
+   - máscara leñosa estable (leñosa en los años t-1 y t)
+   - chequeo de persistencia (la caída debe seguir en el año t+1)
+   - recorte al polígono del partido, área mínima del evento
+   v
+eventos (polígonos exactos, causa por polígono)  -->  muestra estratificada + review_url  -->  precisión por estrato
+   +-- contraste con MapBiomas Argentina C3
+
+Compuestos de verano Landsat 5/7/8/9 1985-2026 --> ajuste LandTrendr por píxel
+   --> pérdida/ganancia persistente de árboles, lluvia (CHIRPS), área urbana MapBiomas
+   --> tasas anuales, antes/después de la Ordenanza 1913, animación y mapa web
+```
+
+## Resultados 📊
 
 Todas las cifras son de la zona de estudio. Son señales satelitales contrastadas
 con una revisión manual chica, no un inventario de árboles.
@@ -152,47 +215,6 @@ ayudar a contrastar permisos y reposiciones.
 | Límite del partido | IGN Argentina vía Georef (datos.gob.ar) | CC BY 4.0 | Servicio Georef – argentina.gob.ar/georef (modificado: campos agregados) |
 
 Las citas completas están en [NOTICE](NOTICE).
-
-## Pipeline 🏗️
-
-```
-Earth Engine: Sentinel-2 / Landsat / Dynamic World / Cloud Score+
-   |  1 pedido por año: compuesto de verano sin nubes (mediana, +-30 días del 15 de feb)
-   v
-caché en disco (data/cache)  -->  SatelliteImage: reflectancia, NDVI/NDBI/NDMI,
-   |                              etiqueta y probabilidad de árbol de Dynamic World
-   v
-detección (4 baselines: ndvi_diff | dynamic_world | cva | veg_to_built), cada uno refinado con
-   - corrimiento regional de NDVI del par descontado (sequías)
-   - máscara leñosa estable (leñosa en los años t-1 y t)
-   - chequeo de persistencia (la caída debe seguir en el año t+1)
-   - recorte al polígono del partido, área mínima del evento
-   v
-eventos (polígonos exactos, causa por polígono)  -->  muestra estratificada + review_url  -->  precisión por estrato
-   +-- contraste con MapBiomas Argentina C3
-
-Compuestos de verano Landsat 5/7/8/9 1985-2026 --> ajuste LandTrendr por píxel
-   --> pérdida/ganancia persistente de árboles, lluvia (CHIRPS), área urbana MapBiomas
-   --> tasas anuales, antes/después de la Ordenanza 1913, animación y mapa web
-```
-
-## Notas de ingeniería 🧭
-
-- **Una descarga por año**, no por tile: grilla exacta con `computePixels`
-  (bandas crudas como `uint16`, una etiqueta de cobertura `uint8`, una
-  probabilidad de árbol `uint8` y una de construido `uint8`). Una corrida
-  completa antes tardaba unos 30 minutos y fallaba por un desajuste de tamaño
-  entre tiles; ahora las imágenes de 2015-2024 bajan en unos 2,5 minutos en
-  total (medido), y una nueva corrida sale de la caché en disco sin pedir
-  imágenes a Earth Engine.
-- LandTrendr sobre todo el partido en un solo pedido no terminó en minutos; el
-  mismo trabajo en tramos de 100.000 píxeles tarda cerca de un minuto por tramo
-  y después queda en caché.
-- Reintentos con espera creciente, timeouts y un checkpoint tras cada año
-  procesado: un fallo no pierde el trabajo ya terminado.
-- Los años corren en paralelo (4 hilos, conservador para la cuota no comercial).
-- Los pares de años con distinta resolución de sensor (30 m vs. 10 m) se
-  omiten, porque el NDVI no es comparable entre ellos.
 
 ## Estado actual y validación 📊
 
@@ -437,6 +459,50 @@ Planet seguirá las reglas de uso compartido del programa y llevará el aviso
 "Image © 20xx Planet Labs PBC". Todos los resultados de arriba se produjeron sin
 datos de Planet.
 
+## Limitaciones ⚠️
+
+- La cobertura leñosa incluye arbustos, forestación de médanos y plantaciones;
+  ninguna capa libre separa el bosque natural de los árboles plantados.
+- Un solo compuesto de verano por año puede confundir estrés o sequía con una
+  disminución real de la cobertura leñosa.
+- Con 10 m no se pueden contar árboles individuales; a 30 m, los árboles
+  urbanos con copas menores que un píxel no se ven, así que la serie larga ve
+  el monte de médanos y las plantaciones, no el arbolado de calle.
+- La zona de estudio se dibujó desde la huella urbana de hoy, así que está
+  sesgada hacia lugares que se desarrollaron; sus tasas no se pueden comparar con
+  las del campo como si fuera un control. La parcela de Los Bosques sale de un PDF, con unos 250 m de error.
+- La serie larga tiene pocas observaciones Landsat en la ventana en 9 años (ver
+  `valid_fraction`) y 2012-2013 dependen de Landsat 7 (sensor con bandas): esos
+  años se interpolan. La corrección de sensor entre Landsat 7 y 8/9 es una sola
+  constante (0,04) estimada con 8 años de solapamiento. Los últimos tres años son
+  provisorios.
+- Las comparaciones antes y después no tienen municipio de control y no pueden
+  mostrar que la ordenanza causó un cambio.
+- La detección inmobiliaria depende de la clase construido de Dynamic World a
+  10 m, que confunde arena clara con edificios; las causas son evidencia, no
+  prueba.
+- Las cifras de área anteriores a la corrección de polígonos venían de polígonos
+  un píxel más chicos y contaban los huecos como eventos; las del partido
+  completo de arriba ya usan los corregidos.
+- La calidad de la detección no está medida hasta que exista la muestra
+  etiquetada.
+
+## Estructura
+
+| Módulo | Función |
+|---|---|
+| `preprocessing.py` | Descarga de Earth Engine, compuestos, índices, caché en disco |
+| `timeseries.py` | Serie anual (en paralelo), con el año previo/siguiente como contexto |
+| `masks.py`, `detection.py` | Máscaras de terreno, los cuatro baselines, corrimiento regional de NDVI, refinamiento (`detect_pair`) |
+| `attribution.py`, `trees.py` | Causa por polígono, rango de escenarios de cantidad de árboles |
+| `longterm.py` | Serie Landsat 1985-2026 con LandTrendr, tasas, antes/después de la ordenanza |
+| `animation.py`, `docs/` | Cuadros anuales, GIF y mapa web estático (`docs/index.html`) |
+| `data/reference/` | Desarrollos inmobiliarios públicos hallados en prensa y fuentes municipales |
+| `export.py`, `validation.py` | GeoJSON/CSV/GeoTIFF, métricas, muestreo estratificado, precisión |
+| `aoi.py`, `config.py` | Límite del partido, zona de estudio, carga de `config.yaml` |
+| `developments.py` | Eventos cerca de los desarrollos inmobiliarios conocidos |
+| `compare_baselines.py`, `external_validation.py`, `pipeline.py` | Puntos de entrada |
+
 ## Inicio rápido 🚀
 
 ```bash
@@ -473,75 +539,9 @@ Autochequeos sin conexión (no necesitan Earth Engine):
 `gee_mh.developments --selftest`, `gee_mh.longterm --selftest`,
 `gee_mh.external_validation --selftest`.
 
-## Estructura del repositorio 📦
+## Licencia
 
-| Módulo | Función |
-|---|---|
-| `preprocessing.py` | Descarga de Earth Engine, compuestos, índices, caché en disco |
-| `timeseries.py` | Serie anual (en paralelo), con el año previo/siguiente como contexto |
-| `masks.py`, `detection.py` | Máscaras de terreno, los cuatro baselines, corrimiento regional de NDVI, refinamiento (`detect_pair`) |
-| `attribution.py`, `trees.py` | Causa por polígono, rango de escenarios de cantidad de árboles |
-| `longterm.py` | Serie Landsat 1985-2026 con LandTrendr, tasas, antes/después de la ordenanza |
-| `animation.py`, `docs/` | Cuadros anuales, GIF y mapa web estático (`docs/index.html`) |
-| `data/reference/` | Desarrollos inmobiliarios públicos hallados en prensa y fuentes municipales |
-| `export.py`, `validation.py` | GeoJSON/CSV/GeoTIFF, métricas, muestreo estratificado, precisión |
-| `aoi.py`, `config.py` | Límite del partido, zona de estudio, carga de `config.yaml` |
-| `developments.py` | Eventos cerca de los desarrollos inmobiliarios conocidos |
-| `compare_baselines.py`, `external_validation.py`, `pipeline.py` | Puntos de entrada |
-
-## Herramientas 🛠️
-
-- Python, NumPy, pandas
-- API de Python de Google Earth Engine
-- GeoPandas, Shapely, rasterio
-- OpenCV (componentes conectados, remuestreo, suavizado)
-- PyYAML
-
-## Habilidades 🧠
-
-- Series temporales de teledetección: compuestos estacionales sin nubes con
-  Sentinel-2 y Landsat
-- Detección de cambios y análisis de falsos positivos: averiguar qué marca
-  realmente un detector
-- Ingeniería de datos consciente de la cuota en Earth Engine: descargas de un
-  solo request, caché en disco, reintentos, checkpoints
-- Diseño de validación: muestreo estratificado, intervalos de Wilson,
-  contrastes independientes
-- Código de investigación reproducible: autochequeos offline, reporte honesto
-  de resultados negativos
-- Licencias y atribución de datos abiertos
-
-## Limitaciones ⚠️
-
-- La cobertura leñosa incluye arbustos, forestación de médanos y plantaciones;
-  ninguna capa libre separa el bosque natural de los árboles plantados.
-- Un solo compuesto de verano por año puede confundir estrés o sequía con una
-  disminución real de la cobertura leñosa.
-- Con 10 m no se pueden contar árboles individuales; a 30 m, los árboles
-  urbanos con copas menores que un píxel no se ven, así que la serie larga ve
-  el monte de médanos y las plantaciones, no el arbolado de calle.
-- La zona de estudio se dibujó desde la huella urbana de hoy, así que está
-  sesgada hacia lugares que se desarrollaron; sus tasas no se pueden comparar con
-  las del campo como si fuera un control. La parcela de Los Bosques sale de un PDF, con unos 250 m de error.
-- La serie larga tiene pocas observaciones Landsat en la ventana en 9 años (ver
-  `valid_fraction`) y 2012-2013 dependen de Landsat 7 (sensor con bandas): esos
-  años se interpolan. La corrección de sensor entre Landsat 7 y 8/9 es una sola
-  constante (0,04) estimada con 8 años de solapamiento. Los últimos tres años son
-  provisorios.
-- Las comparaciones antes y después no tienen municipio de control y no pueden
-  mostrar que la ordenanza causó un cambio.
-- La detección inmobiliaria depende de la clase construido de Dynamic World a
-  10 m, que confunde arena clara con edificios; las causas son evidencia, no
-  prueba.
-- Las cifras de área anteriores a la corrección de polígonos venían de polígonos
-  un píxel más chicos y contaban los huecos como eventos; las del partido
-  completo de arriba ya usan los corregidos.
-- La calidad de la detección no está medida hasta que exista la muestra
-  etiquetada.
-
-## Agradecimientos y licencia 📎
-
-La idea y el diseño inicial vienen del proyecto de detección de cambios de uso
+**Agradecimientos.** La idea y el diseño inicial vienen del proyecto de detección de cambios de uso
 del suelo del
 [capítulo Córdoba, Argentina](https://github.com/OmdenaAI/CordobaArgentinaChapter_MonitoringLandUseTransformation)
 de Omdena; este repositorio no incluye archivos de ese proyecto. Ver
