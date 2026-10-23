@@ -67,13 +67,14 @@
   <label><input type="checkbox" id="l-loss" checked><span class="swatch" style="background:var(--loss)"></span>Pérdida de árboles (30 m)</label>
   <label><input type="checkbox" id="l-gain" checked><span class="swatch" style="background:var(--gain)"></span>Ganancia de árboles (30 m)</label>
   <label><input type="checkbox" id="l-s2"><span class="swatch" style="background:none;border:2px solid var(--loss)"></span>Eventos Sentinel-2 confirmados, 10 m (<span class="swatch" style="background:none;border:2px solid var(--built)"></span> vegetación → construido), 2017+</label>
+  <label id="canopy-label" hidden><input type="checkbox" id="l-canopy"><span class="swatch" style="background:hsl(120,45%,35%)"></span>Copa de árboles por manzana (Planet, 3 m)</label>
   <label>Imagen <input type="range" id="opacity" min="0" max="100" value="100" aria-label="Opacidad de la imagen"></label>
   <label><input type="checkbox" id="cumulative" checked>Acumulado hasta el año</label>
 </div>
 <div style="padding:0 14px; position:relative"><svg id="chart" role="img" aria-label="Cobertura arbórea del partido por año"></svg><div id="tooltip"></div></div>
 <footer>
   Contains modified Copernicus Sentinel data · Courtesy U.S. Geological Survey (Landsat) · Esri Wayback: Esri, Maxar, Earthstar Geographics · Cloud Score+ y Dynamic World (Google, CC BY 4.0) ·
-  Base: © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · Código y método:
+  Base y manzanas: © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · Copa por manzana: derivada de imágenes © Planet Labs PBC · Código y método:
   README del repositorio. Los cambios entre períodos no prueban su causa.
 </footer>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -83,6 +84,8 @@
   const longterm = await (await fetch("data/longterm_events.geojson")).json();
   const sentinel = await (await fetch("data/sentinel_events.geojson")).json();
   const zona = await (await fetch("data/zona.geojson")).json();
+  const manzanas = await fetch("data/manzanas.geojson").then((r) => r.ok ? r.json() : null).catch(() => null);  // opcional: solo si se corrió canopy
+  if (manzanas) document.getElementById("canopy-label").hidden = false;
   const css = (name) => getComputedStyle(document.body).getPropertyValue(name).trim();
   const colors = { loss: css("--loss"), gain: css("--gain"), veg_to_built: css("--built") };
   const frames = Object.fromEntries(meta.frames.map((f) => [f.year, f]));
@@ -167,6 +170,7 @@
   L.geoJSON(zona, { style: { color: "#ffffff", weight: 1.5, fill: false, dashArray: "4 4" }, interactive: false }).addTo(map);
   const eventLayer = L.layerGroup().addTo(map);
   const sentinelLayer = L.layerGroup();
+  const canopyLayer = L.layerGroup();
 
   const on = (id) => document.getElementById(id).checked;
   function draw() {
@@ -198,6 +202,17 @@
       }));
       sentinelLayer.addTo(map);
     } else map.removeLayer(sentinelLayer);
+    canopyLayer.clearLayers();
+    if (manzanas && on("l-canopy")) {  // último año con dato hasta el del control
+      const key = Object.keys(manzanas.features[0].properties).filter((k) => /^c\d{4}$/.test(k) && +k.slice(1) <= to).sort().pop();
+      if (key) {
+        canopyLayer.addLayer(L.geoJSON(manzanas, {
+          style: (f) => { const v = f.properties[key]; return v == null ? { fill: false, weight: 0.3, color: "#888" } : { weight: 0.3, color: "#fff", fillColor: `hsl(120,45%,${88 - v * 0.55}%)`, fillOpacity: 0.75 }; },
+          onEachFeature: (f, layer) => layer.bindTooltip(f.properties[key] == null ? `Manzana · ${key.slice(1)} · sin dato` : `Manzana · ${key.slice(1)} · copa ${f.properties[key].toFixed(0)} %`),
+        }));
+        canopyLayer.addTo(map);
+      }
+    } else map.removeLayer(canopyLayer);
     drawChart(year);
   }
 

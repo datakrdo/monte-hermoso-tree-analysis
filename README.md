@@ -468,31 +468,34 @@ Offline self-checks (no Earth Engine needed):
 `gee_mh.developments --selftest`, `gee_mh.longterm --selftest`,
 `gee_mh.external_validation --selftest`.
 
-## Planned use of Planet imagery 🌍
+## Planet imagery 🌍
 
-We plan to apply to Planet's Education and Research program through a
-university affiliation. The pipeline already works without Planet data; high
-resolution imagery would address its two biggest limits, resolution and
-ground truth:
+The pipeline works without Planet data. With the Education and Research license
+three uses of high-resolution imagery are added; no results are published yet:
 
-1. **Ground truth.** Visual review of sampled events on ~3 m imagery to build
-   the labeled set that today is the bottleneck.
-   Open cases to settle with it: the unexplained 2024 peak and the 31 ha patch of
-   December 2025 near Balneario Sauce Grande.
-2. **Smaller events.** The median detected event is about 1,000 m², roughly 10
-   Sentinel-2 pixels but about 110 pixels at 3 m; single houses on a lot are
-   below the 500 m² minimum. A zone of about 46 km² is also a manageable area
-   for imagery that is requested by area.
-3. **Crown calibration.** Sub-10 m imagery to calibrate the area-to-trees
-   scenario range in `trees.py`.
-4. **Dating and seasonality.** Frequent revisits to date events and separate
-   seasonal variation from permanent change.
+1. **Causes at 3 m** (`planet_attribution.py`). Events that Sentinel-2 left as
+   `desconocido` (unknown) are reclassified with PlanetScope (3 m): NDVI drop,
+   water and bare soil or roof between the start and end summers, plus how much
+   of the event lies inside city blocks. Thresholds are tuned against the manual
+   labels and against the events Sentinel-2 already attributed to real-estate
+   development.
+2. **Canopy per block** (`canopy.py`). Share of each block covered by trees
+   (blocks built from OpenStreetMap streets), per summer since 2017. Individual
+   trees cannot be counted at 3 m. The NDVI threshold is calibrated against
+   Dynamic World.
+3. **RapidEye bridge** (5 m, 2010-2019), calibrated against PlanetScope in the
+   years both exist. RapidEye imagery starts in 2010, the year of Ordinance
+   1913, so it describes the evolution afterwards but cannot support a
+   before/after comparison of the ordinance.
+
+PlanetScope is delivered to a private Earth Engine collection
+(`python -m gee_mh.planet --download`); RapidEye does not support that delivery
+and is composited locally.
 
 **Data policy:** this repository does not contain, and will not contain,
-Planet imagery or raw Planet pixel values. Anything derived from Planet data
-will follow the program's sharing rules and carry the notice
-"Image © 20xx Planet Labs PBC". Every result above was produced without Planet
-data.
+Planet imagery or raw Planet pixel values. Only derived products (canopy
+percentage per block and causes per event) are published, with the notice
+"Image © 20xx Planet Labs PBC".
 
 ## Limitations ⚠️
 

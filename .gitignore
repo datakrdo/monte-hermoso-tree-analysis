@@ -7,3 +7,4 @@ data/exports/
 .env
 data/cache/
 .pytest_cache/
+data/planet/

@@ -485,31 +485,34 @@ Autochequeos sin conexión (no necesitan Earth Engine):
 `gee_mh.developments --selftest`, `gee_mh.longterm --selftest`,
 `gee_mh.external_validation --selftest`.
 
-## Uso previsto de imágenes de Planet 🌍
+## Imágenes de Planet 🌍
 
-Planeamos postular al programa Education and Research de Planet a través de una
-afiliación universitaria. El pipeline ya funciona sin datos de Planet; la
-imagen de alta resolución atacaría sus dos mayores límites, la resolución y la
-verdad de terreno:
+El pipeline funciona sin datos de Planet. Con la licencia de Education and
+Research se agregan tres usos de imágenes de alta resolución, todavía sin
+resultados publicados:
 
-1. **Verdad de terreno.** Revisión visual de los eventos muestreados sobre
-   imágenes de ~3 m para armar el conjunto etiquetado que hoy es el cuello de
-   botella. Casos abiertos para resolver con ellas: el pico de 2024 sin explicar y
-   la mancha de 31 ha de diciembre de 2025 junto a Balneario Sauce Grande.
-2. **Eventos más chicos.** El evento detectado mediano es de unos 1.000 m²,
-   cerca de 10 píxeles Sentinel-2 pero unos 110 píxeles a 3 m; una casa en un
-   lote queda por debajo del mínimo de 500 m². Una zona de unos 46 km² también es
-   un área manejable para imágenes que se piden por área.
-3. **Calibración de copas.** Imágenes de menos de 10 m para calibrar el rango de
-   escenarios de área a árboles en `trees.py`.
-4. **Fechado y estacionalidad.** Revisitas frecuentes para fechar los eventos y
-   separar la variación estacional del cambio permanente.
+1. **Causas a 3 m** (`planet_attribution.py`). Los eventos que Sentinel-2 dejó
+   como `desconocido` se reclasifican con PlanetScope (3 m): caída de NDVI, agua
+   y suelo o techo entre el verano de inicio y el de fin, más cuánto del evento
+   cae dentro de manzanas. Los umbrales se ajustan contra las etiquetas manuales
+   y contra los eventos que Sentinel-2 ya atribuyó a desarrollo inmobiliario.
+2. **Copa por manzana** (`canopy.py`). Porcentaje de superficie con árboles en
+   cada manzana (armadas con las calles de OpenStreetMap), por verano desde 2017.
+   Con 3 m no se cuentan árboles individuales. El umbral de NDVI se calibra
+   contra Dynamic World.
+3. **Puente con RapidEye** (5 m, 2010-2019), calibrado contra PlanetScope en los
+   años en común. Las imágenes de RapidEye empiezan en 2010, el año de la
+   Ordenanza 1913, así que sirven para describir la evolución posterior pero no
+   para una comparación antes y después de la ordenanza.
+
+PlanetScope se entrega a una colección privada de Earth Engine
+(`python -m gee_mh.planet --download`); RapidEye no admite esa entrega y se
+compone en local.
 
 **Política de datos:** este repositorio no contiene, ni contendrá, imágenes de
-Planet ni valores de píxeles crudos de Planet. Todo lo derivado de datos de
-Planet seguirá las reglas de uso compartido del programa y llevará el aviso
-"Image © 20xx Planet Labs PBC". Todos los resultados de arriba se produjeron sin
-datos de Planet.
+Planet ni valores de píxeles crudos de Planet. Solo se publican derivados
+(porcentajes de copa por manzana y causas por evento), con el aviso "Image ©
+20xx Planet Labs PBC".
 
 ## Limitaciones ⚠️
 
