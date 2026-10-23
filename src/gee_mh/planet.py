@@ -42,6 +42,11 @@ MIN_COVER = 0.99  # las escenas elegidas deben cubrir juntas la zona
 DATA_API = "https://api.planet.com/data/v1"
 ORDERS_API = "https://api.planet.com/compute/ops/orders/v2"
 QUOTA_API = "https://api.planet.com/auth/v1/experimental/public/my/subscriptions"
+# El plan Education and Research Basic cobra mínimo 100 km² por escena recortada, aunque el recorte sea menor
+# (https://support.planet.com/hc/en-us/articles/4425683189533). La cuota es de la cuenta, no del repo.
+MIN_KM2_SCENE = float(os.environ.get("PL_MIN_KM2_SCENE", 100))
+MAX_KM2_RUN = float(os.environ.get("PL_MAX_KM2_RUN", 300))  # tope por corrida, sin flag para saltearlo
+_spent = 0.0  # km² ya pedidos en esta corrida
 
 
 def _env(name: str) -> str:
@@ -134,10 +139,27 @@ def select(scenes: list, n: int = SCENES_PER_YEAR) -> list:
 
 
 def quota() -> float:
-    """Km² que quedan este mes."""
-    sub = _request(QUOTA_API)
-    sub = sub[0] if isinstance(sub, list) else sub
-    return sub["quota_sqkm"] - sub["quota_used"]
+    """Km² que quedan este mes. Falla cerrado: si no se puede leer, aborta y no se ordena."""
+    try:
+        sub = _request(QUOTA_API)
+        sub = sub[0] if isinstance(sub, list) else sub
+        return float(sub["quota_sqkm"]) - float(sub["quota_used"])
+    except Exception as error:
+        raise RuntimeError(f"No se pudo leer la cuota de Planet; no se ordena nada ({error!r})") from error
+
+
+def order_cost_km2(n_scenes: int, area_km2: float = None) -> float:
+    """Costo de un pedido: Planet cobra al menos MIN_KM2_SCENE por escena."""
+    return n_scenes * max(MIN_KM2_SCENE, zone_area_km2() if area_km2 is None else area_km2)
+
+
+def check_budget(cost: float, left: float, spent: float = 0.0, label: str = ""):
+    """Aborta (con el desglose) si el pedido supera la cuota restante o el tope de la corrida."""
+    if cost > left:
+        raise RuntimeError(f"Cupo insuficiente {label}: {cost:.0f} km² necesarios, quedan {left:.0f} km² este mes")
+    if spent + cost > MAX_KM2_RUN:
+        raise RuntimeError(f"Tope por corrida superado {label}: {cost:.0f} km² de este pedido + {spent:.0f} km² ya pedidos "
+                           f"> {MAX_KM2_RUN:.0f} km² (PL_MAX_KM2_RUN)")
 
 
 def gee_delivery(project: str) -> dict:
@@ -237,7 +259,7 @@ def read_composite(item_type: str, year: int):
     return dict(zip(("blue", "green", "red", "nir", "count"), data)), transform
 
 
-def download(item_type: str, year: int):
+def download(item_type: str, year: int, dry_run: bool = False):
     """PlanetScope va a la colección de GEE; RapidEye (sin entrega a GEE) se baja y compone en local."""
     to_gee = item_type == "PSScene"
     if not to_gee and (PLANET_DIR / item_type / f"{year}_composite.tif").exists():
@@ -253,10 +275,15 @@ def download(item_type: str, year: int):
     if not scenes:
         print(f"{item_type} {year}: nada para pedir (sin escenas despejadas que cubran la zona, o ya entregadas)")
         return
-    needed = len(scenes) * zone_area_km2()
-    left = quota()
-    if needed > left:
-        raise RuntimeError(f"Cupo insuficiente: {needed:.0f} km² necesarios, quedan {left:.0f} km² este mes")
+    global _spent
+    needed, left = order_cost_km2(len(scenes)), quota()
+    label = f"{item_type} {year}: {len(scenes)} escenas x {max(MIN_KM2_SCENE, zone_area_km2()):.0f} km²"
+    print(f"{label} = {needed:.0f} km² estimados; cuota restante {left:.0f} km²; ya pedidos en esta corrida {_spent:.0f} km²")
+    check_budget(needed, left, _spent, label)
+    if dry_run:
+        print("--dry-run: no se ordena")
+        return
+    _spent += needed
     ids = [s["id"] for s in scenes]
     if to_gee:
         order(item_type, year, ids, delivery=gee_delivery(project))
@@ -286,6 +313,24 @@ def _selftest():
         block = gee_delivery("p")["google_earth_engine"]
         assert block["collection"] == GEE_COLLECTION and base64.b64decode(block["credentials"]) == b'{"client_email": "x"}'
     del os.environ["PL_GEE_SA_KEY"]
+    area = 45.0  # zona de ~45 km²: se cobran 100 km² por escena, no 45
+    assert order_cost_km2(3, area) == 300 and order_cost_km2(3, area) != 3 * area
+    check_budget(300, left=3000, spent=0)
+    for args in ({"cost": 400, "left": 3000}, {"cost": 100, "left": 3000, "spent": 250}, {"cost": 100, "left": 50}):
+        try:
+            check_budget(**args)
+        except RuntimeError:
+            continue
+        raise AssertionError(f"debía abortar: {args}")
+    global _request
+    real, _request = _request, lambda *a, **k: (_ for _ in ()).throw(OSError("sin red"))
+    try:
+        quota()
+        raise AssertionError("quota() debe fallar cerrado")
+    except RuntimeError:
+        pass
+    finally:
+        _request = real
     print("planet selftest OK")
 
 
@@ -295,6 +340,7 @@ if __name__ == "__main__":
     parser.add_argument("--download", action="store_true")
     parser.add_argument("--sensor", choices=["ps", "re"], default="ps")
     parser.add_argument("--years", type=int, nargs="+")
+    parser.add_argument("--dry-run", action="store_true", help="todo salvo el POST a la Orders API")
     args = parser.parse_args()
     if args.selftest:
         _selftest()
@@ -302,4 +348,4 @@ if __name__ == "__main__":
         item_type = "PSScene" if args.sensor == "ps" else "REOrthoTile"
         default_years = range(2017, 2027) if args.sensor == "ps" else range(2011, 2020)
         for y in args.years or default_years:
-            download(item_type, y)
+            download(item_type, y, args.dry_run)

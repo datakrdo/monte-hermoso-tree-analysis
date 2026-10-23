@@ -507,7 +507,10 @@ resultados publicados:
 
 PlanetScope se entrega a una colección privada de Earth Engine
 (`python -m gee_mh.planet --download`); RapidEye no admite esa entrega y se
-compone en local.
+compone en local. Planet cobra un mínimo de 100 km² por escena recortada (la zona
+mide ~45 km²) y la cuota mensual es de la cuenta, así que se comparte con otros
+proyectos que usen la misma clave; `--dry-run` muestra el costo y la cuota
+restante sin ordenar, y cada corrida tiene un tope de 300 km² (`PL_MAX_KM2_RUN`).
 
 **Política de datos:** este repositorio no contiene, ni contendrá, imágenes de
 Planet ni valores de píxeles crudos de Planet. Solo se publican derivados

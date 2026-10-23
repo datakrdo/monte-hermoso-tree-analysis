@@ -490,7 +490,11 @@ three uses of high-resolution imagery are added; no results are published yet:
 
 PlanetScope is delivered to a private Earth Engine collection
 (`python -m gee_mh.planet --download`); RapidEye does not support that delivery
-and is composited locally.
+and is composited locally. Planet bills a minimum of 100 km² per clipped scene
+(the zone is only ~45 km²) and the monthly quota belongs to the account, so it is
+shared with any other project using the same key; `--dry-run` shows the cost and
+the remaining quota without ordering, and each run is capped at 300 km²
+(`PL_MAX_KM2_RUN`).
 
 **Data policy:** this repository does not contain, and will not contain,
 Planet imagery or raw Planet pixel values. Only derived products (canopy
